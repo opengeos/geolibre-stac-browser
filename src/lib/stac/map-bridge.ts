@@ -16,6 +16,8 @@ export interface StacMapBridge {
   showSelected(feature: FootprintFeature | null): void;
   /** Frame the map to the given bounds. */
   fitBounds(bounds: Bounds): void;
+  /** Current map view bounds `[w, s, e, n]`, or `null` when no map is ready. */
+  getViewBounds(): Bounds | null;
   /** Overlay a (thumbnail) image placed at the given bounds. */
   showPreview(url: string, bounds: Bounds): void;
   /** Remove any image preview overlay. */
@@ -40,6 +42,7 @@ export const NOOP_MAP_BRIDGE: StacMapBridge = {
   showFootprints: () => undefined,
   showSelected: () => undefined,
   fitBounds: () => undefined,
+  getViewBounds: () => null,
   showPreview: () => undefined,
   clearPreview: () => undefined,
   showCog: () => undefined,

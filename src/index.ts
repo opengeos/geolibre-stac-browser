@@ -1,8 +1,10 @@
 // Import styles
 import './lib/styles/plugin-control.css';
 
-// Core MapLibre control (used standalone and as the GeoLibre launcher button)
+// Core MapLibre controls (used standalone and as the GeoLibre launcher button)
 export { PluginControl } from './lib/core/PluginControl';
+export { StacBrowserControl } from './lib/core/StacBrowserControl';
+export type { StacBrowserControlOptions } from './lib/core/StacBrowserControl';
 
 export type {
   PluginControlOptions,
@@ -61,6 +63,8 @@ export type {
 } from './lib/stac/geo';
 export { DEFAULT_CATALOGS } from './lib/stac/catalogs';
 export type { StacCatalogPreset } from './lib/stac/catalogs';
+export { buildSearchBody, buildDatetime } from './lib/stac/search';
+export type { SearchParams } from './lib/stac/search';
 export { NOOP_MAP_BRIDGE } from './lib/stac/map-bridge';
 export type { StacMapBridge } from './lib/stac/map-bridge';
 export type {

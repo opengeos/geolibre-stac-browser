@@ -334,6 +334,118 @@
    adapts to light/dark and can be reused outside the map control's subtree.
    ========================================================================== */
 
+/* Collapsible map control hosting the browser (standalone usage). */
+.maplibregl-ctrl-group.stac-control {
+  background: #fff;
+  border-radius: 4px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .maplibregl-ctrl-group.stac-control {
+    background: #1f2937;
+  }
+}
+
+.stac-control-toggle {
+  width: 29px;
+  height: 29px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: #1f2a37;
+}
+
+.stac-control-toggle:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+@media (prefers-color-scheme: dark) {
+  .stac-control-toggle {
+    color: #e5e7eb;
+  }
+  .stac-control-toggle:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+  }
+}
+
+.stac-control-panel {
+  position: absolute;
+  display: none;
+  flex-direction: column;
+  height: min(640px, calc(100% - 70px));
+  max-width: calc(100% - 20px);
+  z-index: 1000;
+  background: #fff;
+  color: #1f2937;
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+
+@media (prefers-color-scheme: dark) {
+  .stac-control-panel {
+    background: #111827;
+    color: #e5e7eb;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  }
+}
+
+.stac-control-panel.expanded {
+  display: flex;
+}
+
+.stac-control-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e5e7eb;
+  font-weight: 600;
+  font-size: 13px;
+  flex: 0 0 auto;
+}
+
+@media (prefers-color-scheme: dark) {
+  .stac-control-header {
+    border-bottom-color: #374151;
+  }
+}
+
+.stac-control-close {
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.stac-control-close:hover {
+  color: #1f2937;
+}
+
+@media (prefers-color-scheme: dark) {
+  .stac-control-close:hover {
+    color: #e5e7eb;
+  }
+}
+
+.stac-control-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.stac-control-body > .stac-browser {
+  flex: 1 1 auto;
+}
+
 .stac-browser {
   --pc-bg: #fff;
   --pc-text: #1f2937;
@@ -582,6 +694,88 @@
   color: var(--pc-muted);
   background: var(--pc-hover-bg);
   border-radius: 999px;
+}
+
+/* Search form */
+.stac-search {
+  margin-top: 12px;
+  padding: 8px;
+  border: 1px solid var(--pc-border);
+  border-radius: 8px;
+}
+
+.stac-search-toggle {
+  width: 100%;
+  justify-content: flex-start;
+  font-weight: 600;
+}
+
+.stac-search-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.stac-search-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.stac-search-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pc-muted);
+}
+
+.stac-search-input,
+.stac-search-num,
+.stac-search-date {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--pc-text);
+  background: var(--pc-input-bg);
+  border: 1px solid var(--pc-input-border);
+  border-radius: 5px;
+  outline: none;
+}
+
+.stac-search-input:focus,
+.stac-search-num:focus,
+.stac-search-date:focus {
+  border-color: var(--pc-accent);
+  box-shadow: 0 0 0 3px var(--pc-accent-ring);
+}
+
+.stac-search-bbox {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.stac-search-dates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.stac-search-useview {
+  align-self: flex-start;
+  font-size: 12px;
+  padding: 5px 9px;
+}
+
+.stac-search-submit {
+  margin-top: 2px;
+}
+
+.stac-search-status {
+  font-size: 12px;
+}
+
+.stac-search-status:empty {
+  display: none;
 }
 
 /* Sections */

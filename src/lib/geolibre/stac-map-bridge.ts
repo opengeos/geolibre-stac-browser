@@ -143,6 +143,13 @@ export function createStacMapBridge(
       });
     },
 
+    getViewBounds(): Bounds | null {
+      const map = getMap();
+      if (!map) return null;
+      const b = map.getBounds();
+      return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+    },
+
     showPreview(url: string, bounds: Bounds): void {
       whenReady((map) => {
         removePreview(map);

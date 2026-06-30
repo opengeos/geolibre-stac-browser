@@ -12,7 +12,27 @@ const ROUTES: Record<string, unknown> = {
     links: [
       { rel: "self", href: "https://api/" },
       { rel: "data", href: "collections" },
+      { rel: "search", href: "search", method: "POST" },
     ],
+  },
+  "https://api/search": {
+    type: "FeatureCollection",
+    numberMatched: 1,
+    features: [
+      {
+        type: "Feature",
+        id: "search-hit-1",
+        bbox: [2, 2, 3, 3],
+        geometry: {
+          type: "Polygon",
+          coordinates: [[[2, 2], [3, 2], [3, 3], [2, 3], [2, 2]]],
+        },
+        properties: { datetime: "2021-06-15T00:00:00Z" },
+        assets: {},
+        links: [],
+      },
+    ],
+    links: [],
   },
   "https://api/collections": {
     collections: [
@@ -73,6 +93,7 @@ function mockBridge(): StacMapBridge {
     showFootprints: vi.fn(),
     showSelected: vi.fn(),
     fitBounds: vi.fn(),
+    getViewBounds: vi.fn(() => null),
     showPreview: vi.fn(),
     clearPreview: vi.fn(),
     showCog: vi.fn(),
@@ -150,6 +171,26 @@ describe("StacBrowser", () => {
     expect(container.querySelector(".stac-asset-list")).not.toBeNull();
     expect(container.querySelectorAll(".stac-asset")).toHaveLength(2);
     expect(map.showSelected).toHaveBeenCalled();
+  });
+
+  it("shows a search form for an API root and renders search results", async () => {
+    await browser.loadCatalog("https://api/");
+    const search = container.querySelector(".stac-search");
+    expect(search).not.toBeNull();
+
+    // Expand the form and submit (no filters → broad search).
+    (container.querySelector(".stac-search-toggle") as HTMLButtonElement).click();
+    (container.querySelector(".stac-search-submit") as HTMLButtonElement).click();
+    await flush();
+    await flush();
+
+    const title = container.querySelector(".stac-section-title")?.textContent;
+    expect(title).toContain("Search results");
+    const ids = Array.from(container.querySelectorAll(".stac-item-id")).map(
+      (e) => e.textContent,
+    );
+    expect(ids).toContain("search-hit-1");
+    expect(container.querySelector(".stac-back")).not.toBeNull();
   });
 
   it("clears the map on destroy", () => {

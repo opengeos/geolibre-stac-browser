@@ -23,15 +23,19 @@ let position: GeoLibreMapControlPosition = "top-right";
 let panel: StacPanelHandle | null = null;
 let disposeToolbarMenu: (() => void) | null = null;
 
-/** Create the small map control whose button opens the STAC Browser panel. */
+/** Create the small map control whose button toggles the STAC Browser panel. */
 function createControl(app: AppAPI): PluginControl {
   return new PluginControl({
     title: "STAC Browser",
     collapsed: true,
-    // Clicking the control opens the right-side STAC Browser instead of the
-    // control's own dropdown.
+    // Clicking the control toggles the right-side STAC Browser instead of the
+    // control's own dropdown: open it when closed, collapse it when active.
     onButtonClick: () => {
-      app.openRightPanel?.(STAC_PANEL_ID);
+      if (app.getActiveRightPanel?.() === STAC_PANEL_ID) {
+        app.closeRightPanel?.(STAC_PANEL_ID);
+      } else {
+        app.openRightPanel?.(STAC_PANEL_ID);
+      }
     },
   });
 }
@@ -52,7 +56,9 @@ export const plugin: GeoLibrePlugin<PluginControl> = {
     const getMap = () => control?.getMap() ?? null;
     const cog = createCogRenderer(app, getMap);
 
-    panel = registerStacBrowserPanel(app, { getMap, cog });
+    // Start collapsed behind the control's icon rather than auto-opening, so
+    // the plugin does not occupy the workspace until the user asks for it.
+    panel = registerStacBrowserPanel(app, { getMap, cog, openOnRegister: false });
     disposeToolbarMenu = registerStacToolbarMenu(app, { panel });
   },
   // Deep link: GeoLibre auto-activates this plugin when a URL carries the `stac`
