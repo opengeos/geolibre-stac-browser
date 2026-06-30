@@ -1,82 +1,62 @@
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import maplibregl, { Map } from 'maplibre-gl';
-import { PluginControlReact, usePluginState } from '../../src/react';
+import { StacBrowser, createStacMapBridge } from '../../src/index';
 import '../../src/index.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 /**
- * Main App component demonstrating the React integration
+ * React example: mount the framework-free StacBrowser into a sidebar element via
+ * a ref. The browser owns its own DOM, so it drops cleanly into any React app
+ * without a dedicated wrapper component.
  */
 function App() {
   const mapContainer = useRef<HTMLDivElement>(null);
+  const sidebarContainer = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<Map | null>(null);
-  const { state, toggle } = usePluginState({ collapsed: false });
 
-  // Initialize the map
+  // Initialize the map.
   useEffect(() => {
     if (!mapContainer.current) return;
 
     const mapInstance = new maplibregl.Map({
       container: mapContainer.current,
       style: 'https://tiles.openfreemap.org/styles/positron',
-      center: [0, 0],
+      center: [0, 20],
       zoom: 2,
     });
-
-    // Add navigation controls to top-right
     mapInstance.addControl(new maplibregl.NavigationControl(), 'top-right');
+    mapInstance.on('load', () => setMap(mapInstance));
 
-    // Add fullscreen control to top-right (after navigation)
-    mapInstance.addControl(new maplibregl.FullscreenControl(), 'top-right');
-
-    mapInstance.on('load', () => {
-      setMap(mapInstance);
-    });
-
-    return () => {
-      mapInstance.remove();
-    };
+    return () => mapInstance.remove();
   }, []);
 
-  const handleStateChange = (newState: typeof state) => {
-    console.log('Plugin state changed:', newState);
-  };
+  // Mount the STAC browser once the map and sidebar are ready.
+  useEffect(() => {
+    if (!map || !sidebarContainer.current) return;
+
+    const browser = new StacBrowser({
+      map: createStacMapBridge(() => map),
+      initialUrl: 'https://earth-search.aws.element84.com/v1',
+    });
+    browser.mount(sidebarContainer.current);
+
+    return () => browser.destroy();
+  }, [map]);
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-      <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
-
-      {/* External toggle button */}
-      <button
-        onClick={toggle}
+    <div style={{ display: 'flex', width: '100%', height: '100%' }}>
+      <div
+        ref={sidebarContainer}
         style={{
-          position: 'absolute',
-          top: 10,
-          left: 10,
-          zIndex: 1,
-          padding: '8px 16px',
-          background: '#4a90d9',
-          color: 'white',
-          border: 'none',
-          borderRadius: 4,
-          cursor: 'pointer',
-          fontWeight: 500,
+          width: 380,
+          flex: '0 0 380px',
+          height: '100%',
+          borderRight: '1px solid #e5e7eb',
+          overflow: 'hidden',
         }}
-      >
-        {state.collapsed ? 'Expand' : 'Collapse'} Panel
-      </button>
-
-      {/* Plugin control */}
-      {map && (
-        <PluginControlReact
-          map={map}
-          title="React Plugin"
-          collapsed={state.collapsed}
-          panelWidth={320}
-          onStateChange={handleStateChange}
-        />
-      )}
+      />
+      <div ref={mapContainer} style={{ flex: '1 1 auto', height: '100%' }} />
     </div>
   );
 }

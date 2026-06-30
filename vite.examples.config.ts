@@ -7,7 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [react()],
-  base: "/geolibre-plugin-template/",
+  base: "/geolibre-stac-browser/",
   build: {
     outDir: "dist-examples",
     rollupOptions: {

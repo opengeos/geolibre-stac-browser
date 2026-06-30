@@ -1,58 +1,58 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  PLUGIN_DATA_PARAM,
-  getPluginDataValue,
+  STAC_URL_PARAM,
+  getStacUrlValue,
   maybeHandleDeepLink,
 } from '../src/lib/utils/deep-link';
 
 const params = (search: string) => new URLSearchParams(search);
 
-describe('getPluginDataValue', () => {
+describe('getStacUrlValue', () => {
   it('returns the value when the parameter is present', () => {
     expect(
-      getPluginDataValue(params('?plugin-data=https://example.com/dataset.zip')),
-    ).toBe('https://example.com/dataset.zip');
+      getStacUrlValue(params('?stac=https://earth-search.aws.element84.com/v1')),
+    ).toBe('https://earth-search.aws.element84.com/v1');
   });
 
   it('percent-decodes the value', () => {
-    expect(getPluginDataValue(params('plugin-data=https%3A%2F%2Fx%2Fy.zip'))).toBe(
-      'https://x/y.zip',
+    expect(getStacUrlValue(params('stac=https%3A%2F%2Fx%2Fcatalog.json'))).toBe(
+      'https://x/catalog.json',
     );
   });
 
   it('ignores other parameters', () => {
-    expect(getPluginDataValue(params('a=1&plugin-data=https://x/y.zip&b=2'))).toBe(
-      'https://x/y.zip',
+    expect(getStacUrlValue(params('a=1&stac=https://x/catalog.json&b=2'))).toBe(
+      'https://x/catalog.json',
     );
   });
 
   it('returns null when the parameter is absent', () => {
-    expect(getPluginDataValue(params('?foo=bar'))).toBeNull();
-    expect(getPluginDataValue(params(''))).toBeNull();
+    expect(getStacUrlValue(params('?foo=bar'))).toBeNull();
+    expect(getStacUrlValue(params(''))).toBeNull();
   });
 
   it('returns null when the parameter is blank or whitespace', () => {
-    expect(getPluginDataValue(params('?plugin-data='))).toBeNull();
-    expect(getPluginDataValue(params('?plugin-data=%20%20'))).toBeNull();
+    expect(getStacUrlValue(params('?stac='))).toBeNull();
+    expect(getStacUrlValue(params('?stac=%20%20'))).toBeNull();
   });
 
   it('exposes the parameter name', () => {
-    expect(PLUGIN_DATA_PARAM).toBe('plugin-data');
+    expect(STAC_URL_PARAM).toBe('stac');
   });
 });
 
 describe('maybeHandleDeepLink', () => {
   it('forwards the value when the parameter is present', async () => {
-    const consumer = { loadFromUrl: vi.fn() };
-    await maybeHandleDeepLink(consumer, params('?plugin-data=https://x/y.zip'));
-    expect(consumer.loadFromUrl).toHaveBeenCalledOnce();
-    expect(consumer.loadFromUrl).toHaveBeenCalledWith('https://x/y.zip');
+    const consumer = { loadCatalog: vi.fn() };
+    await maybeHandleDeepLink(consumer, params('?stac=https://x/catalog.json'));
+    expect(consumer.loadCatalog).toHaveBeenCalledOnce();
+    expect(consumer.loadCatalog).toHaveBeenCalledWith('https://x/catalog.json');
   });
 
   it('does nothing when the parameter is absent or blank', async () => {
-    const consumer = { loadFromUrl: vi.fn() };
+    const consumer = { loadCatalog: vi.fn() };
     await maybeHandleDeepLink(consumer, params('?other=1'));
-    await maybeHandleDeepLink(consumer, params('?plugin-data='));
-    expect(consumer.loadFromUrl).not.toHaveBeenCalled();
+    await maybeHandleDeepLink(consumer, params('?stac='));
+    expect(consumer.loadCatalog).not.toHaveBeenCalled();
   });
 });

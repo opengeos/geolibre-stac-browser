@@ -1,68 +1,84 @@
-import { FLOATING_PANEL_ID } from "./floating-panel";
-import type { GeoLibreAppAPI, GeoLibreControl } from "./host-api";
-import { RIGHT_PANEL_ID } from "./right-panel";
-
 /**
- * Demonstration of the GeoLibre top toolbar menu host API.
+ * Registers the STAC top toolbar menu in the GeoLibre banner.
  *
- * A plugin can add its own top-level menu button to the GeoLibre banner (beside
- * Project / Edit / View / Plugins), with nested submenus and action items. Menu
- * items typically open one of the plugin's panels; here they open the
- * template's right panel and floating panel, and a third item closes both.
- *
- * Self-contained so it is easy to copy, adapt, or delete. Wire it from the
- * plugin's `activate`/`deactivate` hooks (see `src/geolibre.ts`).
+ * The menu opens the STAC Browser panel, offers one-click loading of the
+ * built-in catalog presets, and clears the browser's map layers. It degrades
+ * gracefully on hosts without a toolbar (returns `null`).
  */
 
-/** Stable id for this plugin's toolbar menu. Replace with your own. */
-export const TOOLBAR_MENU_ID = "geolibre-plugin-template-menu";
+import { DEFAULT_CATALOGS, type StacCatalogPreset } from "../stac/catalogs";
+import type {
+  GeoLibreAppAPI,
+  GeoLibreControl,
+  GeoLibreToolbarMenuItem,
+} from "./host-api";
+import { STAC_PANEL_ID, type StacPanelHandle } from "./right-panel";
+
+/** Stable id for the STAC toolbar menu. */
+export const STAC_MENU_ID = "geolibre-stac-browser-menu";
+
+/** Options for {@link registerStacToolbarMenu}. */
+export interface StacMenuOptions {
+  /** Handle to the registered panel, used to reach the live browser. */
+  panel: StacPanelHandle | null;
+  /** Catalog presets to list under "Open catalog". */
+  presets?: StacCatalogPreset[];
+}
 
 /**
- * Register the template's top toolbar menu.
+ * Register the STAC toolbar menu.
  *
- * @param app - The GeoLibre host API passed to the plugin's `activate` hook.
+ * @param app - The GeoLibre host API from the plugin's `activate` hook.
+ * @param options - The panel handle and catalog presets.
  * @returns A disposer that unregisters the menu, or `null` when the host has no
  *   top toolbar.
  */
-export function registerTemplateToolbarMenu<TControl extends GeoLibreControl>(
+export function registerStacToolbarMenu<TControl extends GeoLibreControl>(
   app: GeoLibreAppAPI<TControl>,
+  options: StacMenuOptions,
 ): (() => void) | null {
   if (!app.registerToolbarMenu) return null;
 
+  const presets = options.presets ?? DEFAULT_CATALOGS;
+  const { panel } = options;
+
+  const openBrowser = (): void => {
+    app.openRightPanel?.(STAC_PANEL_ID);
+  };
+  const loadCatalog = (url: string): void => {
+    app.openRightPanel?.(STAC_PANEL_ID);
+    void panel?.getBrowser()?.loadCatalog(url);
+  };
+
+  const catalogItems: GeoLibreToolbarMenuItem[] = presets.map((preset) => ({
+    id: `catalog-${preset.url}`,
+    label: preset.name,
+    disabled: !panel,
+    onSelect: () => loadCatalog(preset.url),
+  }));
+
   return app.registerToolbarMenu({
-    id: TOOLBAR_MENU_ID,
-    label: "Template",
+    id: STAC_MENU_ID,
+    label: "STAC",
     items: [
       {
-        id: "open-right",
-        label: "Open workbench panel",
-        // Disable the item on hosts that lack the capability, so it is not a
-        // clickable no-op (demonstrates the `disabled` flag + capability check).
+        id: "open-browser",
+        label: "Open STAC Browser",
         disabled: !app.openRightPanel,
-        onSelect: () => app.openRightPanel?.(RIGHT_PANEL_ID),
+        onSelect: openBrowser,
       },
       {
         type: "submenu",
-        id: "tools",
-        label: "Tools",
-        items: [
-          {
-            id: "open-floating",
-            label: "Open floating tools",
-            disabled: !app.openFloatingPanel,
-            onSelect: () => app.openFloatingPanel?.(FLOATING_PANEL_ID),
-          },
-        ],
+        id: "open-catalog",
+        label: "Open catalog",
+        items: catalogItems,
       },
       { type: "separator" },
       {
-        id: "close-panels",
-        label: "Close panels",
-        disabled: !app.closeRightPanel && !app.closeFloatingPanel,
-        onSelect: () => {
-          app.closeRightPanel?.(RIGHT_PANEL_ID);
-          app.closeFloatingPanel?.(FLOATING_PANEL_ID);
-        },
+        id: "clear-layers",
+        label: "Clear map layers",
+        disabled: !panel,
+        onSelect: () => panel?.getBrowser()?.clearMap(),
       },
     ],
   });

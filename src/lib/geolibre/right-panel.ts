@@ -1,72 +1,82 @@
+/**
+ * Registers the STAC Browser as a GeoLibre right-sidebar panel.
+ *
+ * The browser itself ({@link StacBrowser}) is framework-free and renders into
+ * the plain-DOM container the host hands to `render(container)`. This module
+ * wires it to the GeoLibre map through {@link createStacMapBridge} so footprints,
+ * previews, and map framing happen on the host's map.
+ */
+
+import type { Map as MapLibreMap } from "maplibre-gl";
+import { StacBrowser } from "../stac/browser";
+import type { StacCatalogPreset } from "../stac/catalogs";
 import type { GeoLibreAppAPI, GeoLibreControl } from "./host-api";
+import { createStacMapBridge, type CogRenderer } from "./stac-map-bridge";
+
+/** Stable id for the STAC Browser right panel. */
+export const STAC_PANEL_ID = "geolibre-stac-browser-panel";
+
+/** Options for {@link registerStacBrowserPanel}. */
+export interface StacPanelOptions {
+  /** Returns the live MapLibre map (or `null` before it is ready). */
+  getMap: () => MapLibreMap | null;
+  /** Catalog presets for the browser's quick-pick dropdown. */
+  presets?: StacCatalogPreset[];
+  /** Optional COG raster renderer for full-resolution previews. */
+  cog?: CogRenderer;
+  /** Open the panel immediately after registering it. */
+  openOnRegister?: boolean;
+}
+
+/** A handle for driving an already-registered STAC Browser panel. */
+export interface StacPanelHandle {
+  /** The live browser instance (available after the panel first renders). */
+  getBrowser: () => StacBrowser | null;
+  /** Close and unregister the panel, tearing down its map layers. */
+  dispose: () => void;
+}
 
 /**
- * Demonstration of the GeoLibre right-sidebar panel host API.
+ * Register the STAC Browser right panel with the host.
  *
- * A plugin can register a native right-sidebar panel that docks beside
- * GeoLibre's built-in Style panel and behaves like a first-class part of the
- * workspace, instead of emulating one with a fixed overlay. The host renders
- * the panel chrome (header, collapse/close buttons, a collapsible rail, and a
- * resize handle); the plugin owns only the body via `render(container)`, using
- * plain DOM so it never has to share the host's UI framework.
- *
- * This module is intentionally self-contained so it is easy to copy, adapt, or
- * delete. Wire it from the plugin's `activate`/`deactivate` hooks (see
- * `src/geolibre.ts`).
+ * @param app - The GeoLibre host API from the plugin's `activate` hook.
+ * @param options - Map accessor, presets, and COG renderer.
+ * @returns A handle, or `null` when the host has no right sidebar.
  */
-
-/** Stable id for this plugin's right panel. Replace with your own. */
-export const RIGHT_PANEL_ID = "geolibre-plugin-template-workbench";
-
-/**
- * Register and open the template's right-sidebar panel.
- *
- * @param app - The GeoLibre host API passed to the plugin's `activate` hook.
- * @returns A disposer that closes and unregisters the panel, or `null` when the
- *   host does not provide a right sidebar (so the caller can skip cleanup).
- */
-export function registerTemplateRightPanel<TControl extends GeoLibreControl>(
+export function registerStacBrowserPanel<TControl extends GeoLibreControl>(
   app: GeoLibreAppAPI<TControl>,
-): (() => void) | null {
-  // Right panels are an optional host capability; degrade gracefully when the
-  // host (or standalone usage) does not provide them.
+  options: StacPanelOptions,
+): StacPanelHandle | null {
   if (!app.registerRightPanel) return null;
 
+  const bridge = createStacMapBridge(options.getMap, options.cog);
+  let browser: StacBrowser | null = null;
+
   const unregister = app.registerRightPanel({
-    id: RIGHT_PANEL_ID,
-    title: "Workbench",
-    defaultWidth: 320,
+    id: STAC_PANEL_ID,
+    title: "STAC Browser",
+    defaultWidth: 380,
     render(container) {
-      const wrap = document.createElement("div");
-      wrap.className = "geolibre-plugin-right-panel";
-
-      const heading = document.createElement("h2");
-      heading.textContent = "Plugin Workbench";
-
-      const body = document.createElement("p");
-      body.textContent =
-        "This panel is rendered by the plugin through app.registerRightPanel(). " +
-        "Replace this content with your own workbench, query review, or " +
-        "dashboard UI. Drive it with app.openRightPanel(), collapseRightPanel(), " +
-        "and closeRightPanel().";
-
-      wrap.append(heading, body);
-      container.appendChild(wrap);
-
-      // Optional cleanup, run when the panel closes or is unregistered.
+      browser = new StacBrowser({ map: bridge, presets: options.presets });
+      browser.mount(container);
       return () => {
-        wrap.remove();
+        browser?.destroy();
+        browser = null;
       };
     },
   });
 
-  // Open it right away so the example is visible on activation. Remove this call
-  // (or gate it behind a button in your control) if you would rather open the
-  // panel on demand instead of every time the plugin activates.
-  app.openRightPanel?.(RIGHT_PANEL_ID);
+  if (options.openOnRegister !== false) {
+    app.openRightPanel?.(STAC_PANEL_ID);
+  }
 
-  return () => {
-    app.closeRightPanel?.(RIGHT_PANEL_ID);
-    unregister();
+  return {
+    getBrowser: () => browser,
+    dispose: () => {
+      app.closeRightPanel?.(STAC_PANEL_ID);
+      browser?.destroy();
+      browser = null;
+      unregister();
+    },
   };
 }

@@ -1,11 +1,11 @@
 # Examples
 
-This directory contains example implementations of the MapLibre GL Plugin Template.
+This directory contains example implementations of the GeoLibre STAC Browser.
 
 ## Available Examples
 
 ### Basic Example
-A simple vanilla JavaScript/TypeScript example showing how to add the plugin control to a map.
+A vanilla TypeScript example mounting the STAC browser in a sidebar that drives footprints and previews on a MapLibre map.
 
 ```bash
 # Run from project root
@@ -14,7 +14,7 @@ npm run dev
 ```
 
 ### React Example
-A React example demonstrating the React wrapper component and hooks.
+A React example mounting the framework-free STAC browser into a sidebar via a ref.
 
 ```bash
 # Run from project root
