@@ -5,7 +5,6 @@ import type {
   PluginControlEvent,
   PluginControlEventHandler,
 } from './types';
-import type { DeepLinkConsumer } from '../utils/deep-link';
 import type { GeoLibreNativeLayerRegistration } from '../geolibre/host-api';
 
 /**
@@ -15,7 +14,7 @@ import type { GeoLibreNativeLayerRegistration } from '../geolibre/host-api';
  * standalone MapLibre control. The GeoLibre wrapper (`src/geolibre.ts`) binds
  * them to the real host APIs when the plugin runs inside GeoLibre.
  */
-const DEFAULT_OPTIONS: Required<PluginControlOptions> = {
+const DEFAULT_OPTIONS: Required<Omit<PluginControlOptions, 'onButtonClick'>> = {
   collapsed: true,
   position: 'top-right',
   title: 'Plugin Control',
@@ -25,6 +24,10 @@ const DEFAULT_OPTIONS: Required<PluginControlOptions> = {
   registerNativeLayer: () => undefined,
   unregisterNativeLayer: () => undefined,
 };
+
+/** Resolved options: required defaults plus the optional click override. */
+type ResolvedOptions = Required<Omit<PluginControlOptions, 'onButtonClick'>> &
+  Pick<PluginControlOptions, 'onButtonClick'>;
 
 /**
  * Event handlers map type
@@ -44,13 +47,13 @@ type EventHandlersMap = globalThis.Map<PluginControlEvent, Set<PluginControlEven
  * map.addControl(control, 'top-right');
  * ```
  */
-export class PluginControl implements IControl, DeepLinkConsumer {
+export class PluginControl implements IControl {
   private _map?: MapLibreMap;
   private _mapContainer?: HTMLElement;
   private _container?: HTMLElement;
   private _panel?: HTMLElement;
   private _status?: HTMLElement;
-  private _options: Required<PluginControlOptions>;
+  private _options: ResolvedOptions;
   private _state: PluginState;
   private _eventHandlers: EventHandlersMap = new globalThis.Map();
 
@@ -378,7 +381,15 @@ export class PluginControl implements IControl, DeepLinkConsumer {
         </svg>
       </span>
     `;
-    toggleBtn.addEventListener('click', () => this.toggle());
+    toggleBtn.addEventListener('click', () => {
+      // When a host wires a click handler (the GeoLibre wrapper opens the STAC
+      // Browser panel), run it instead of toggling the built-in dropdown.
+      if (this._options.onButtonClick) {
+        this._options.onButtonClick();
+        return;
+      }
+      this.toggle();
+    });
 
     container.appendChild(toggleBtn);
 

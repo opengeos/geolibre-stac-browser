@@ -114,6 +114,41 @@ export interface GeoLibreControl {
 }
 
 /**
+ * Per-map raster layer manager from the host's `maplibre-gl-raster` engine
+ * (the deck.gl/luma.gl-backed COG renderer). Modelled structurally so the
+ * plugin never imports the engine itself; the host owns the single deck.gl/luma
+ * instance to avoid luma.gl's "already initialized" double-instance crash.
+ */
+export interface GeoLibreRasterLayerManager {
+  /** Add a COG raster layer from a URL. */
+  addRaster: (
+    url: string,
+    options?: {
+      id?: string;
+      name?: string;
+      zoomTo?: boolean;
+      state?: Record<string, unknown>;
+    },
+  ) => Promise<void> | void;
+  /** Remove a previously added raster layer by id. */
+  removeRaster: (id: string) => void;
+  /** Update a raster layer's render state (bands, colormap, rescale, opacity). */
+  setState?: (id: string, patch: Record<string, unknown>) => void;
+  /** Toggle a raster layer's visibility. */
+  setVisible?: (id: string, visible: boolean) => void;
+  /** Tear down the manager and its deck.gl overlay. */
+  destroy: () => void;
+}
+
+/** The host's `maplibre-gl-raster` module surface the plugin relies on. */
+export interface GeoLibreRasterModule {
+  LayerManager: new (
+    map: unknown,
+    options?: { interleaved?: boolean },
+  ) => GeoLibreRasterLayerManager;
+}
+
+/**
  * The surface GeoLibre exposes to an active plugin.
  *
  * Only {@link addMapControl} and {@link removeMapControl} are guaranteed. The
@@ -166,6 +201,15 @@ export interface GeoLibreAppAPI<TControl extends GeoLibreControl = GeoLibreContr
   ) => void;
   /** Remove a native layer previously registered with the given id. */
   unregisterExternalNativeLayer?: (id: string) => void;
+  /**
+   * Return the host's shared `maplibre-gl-raster` module (a single deck.gl/luma
+   * instance) so the plugin can render Cloud Optimized GeoTIFFs without bundling
+   * its own copy of deck.gl. Present only on hosts that ship the raster engine
+   * (for example GeoLibre with the raster plugin enabled). Returns `null` when
+   * the engine is unavailable, in which case the plugin falls back to a
+   * thumbnail image overlay. See {@link GeoLibreRasterModule}.
+   */
+  getMaplibreGlRaster?: () => GeoLibreRasterModule | null;
   /**
    * Register a native right-sidebar panel that docks beside the host's built-in
    * Style panel. Returns an unregister function (call it from `deactivate`). The

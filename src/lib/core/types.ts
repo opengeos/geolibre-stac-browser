@@ -35,6 +35,14 @@ export interface PluginControlOptions {
   className?: string;
 
   /**
+   * Optional handler invoked when the control's toggle button is clicked. When
+   * provided, it runs instead of toggling the control's built-in dropdown panel
+   * (the GeoLibre wrapper uses it to open the STAC Browser right panel). When
+   * omitted, the button toggles the dropdown as usual.
+   */
+  onButtonClick?: () => void;
+
+  /**
    * Host-provided directory picker (for example, GeoLibre Desktop). Resolves
    * with the selected files, or `null` when the user cancels or no host picker
    * is available. The GeoLibre wrapper binds this to

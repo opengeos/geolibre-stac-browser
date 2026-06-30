@@ -1,50 +1,30 @@
 import maplibregl from 'maplibre-gl';
-import { PluginControl } from '../../src/index';
+import { StacBrowser, createStacMapBridge } from '../../src/index';
 import '../../src/index.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
-// Create map
+// Create the map.
 const map = new maplibregl.Map({
   container: 'map',
   style: 'https://tiles.openfreemap.org/styles/positron',
-  center: [0, 0],
+  center: [0, 20],
   zoom: 2,
 });
 
-// Add navigation controls to top-right
 map.addControl(new maplibregl.NavigationControl(), 'top-right');
-
-// Add fullscreen control to top-right (after navigation)
 map.addControl(new maplibregl.FullscreenControl(), 'top-right');
 
-// Add plugin control when map loads
-map.on('load', () => {
-  // Create the plugin control with custom options
-  // Set collapsed: true to start with just the 29x29 button (like navigation control)
-  const pluginControl = new PluginControl({
-    title: 'My Plugin',
-    collapsed: false,
-    panelWidth: 300,
-  });
+// Mount the STAC browser into the sidebar. The map bridge wires footprints,
+// thumbnail previews, and map framing to the MapLibre map. (Full-resolution COG
+// rendering is a GeoLibre-host capability and is not available in this
+// standalone demo, so the browser falls back to thumbnail previews.)
+const sidebar = document.getElementById('sidebar') as HTMLElement;
+const bridge = createStacMapBridge(() => map);
 
-  // Add control to the map
-  map.addControl(pluginControl, 'top-right');
-
-  // Add Globe control to the map
-  map.addControl(new maplibregl.GlobeControl(), 'top-right');
-
-  // Listen for state changes
-  pluginControl.on('statechange', (event) => {
-    console.log('Plugin state changed:', event.state);
-  });
-
-  pluginControl.on('collapse', () => {
-    console.log('Plugin panel collapsed');
-  });
-
-  pluginControl.on('expand', () => {
-    console.log('Plugin panel expanded');
-  });
-
-  console.log('Plugin control added to map');
+const browser = new StacBrowser({
+  map: bridge,
+  // Load a catalog on startup so the demo shows content immediately.
+  initialUrl: 'https://earth-search.aws.element84.com/v1',
 });
+
+browser.mount(sidebar);

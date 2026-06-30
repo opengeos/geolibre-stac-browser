@@ -327,46 +327,488 @@
   margin: 12px 0;
 }
 
-/* Demo right-sidebar panel body (see src/lib/geolibre/right-panel.ts). The host
-   provides the dock chrome and theme; the plugin only styles its own content. */
-.geolibre-plugin-right-panel {
+/* ==========================================================================
+   STAC Browser
+   The browser renders into a host-provided plain-DOM container (the GeoLibre
+   right panel) or a standalone element. It defines its own theme tokens so it
+   adapts to light/dark and can be reused outside the map control's subtree.
+   ========================================================================== */
+
+.stac-browser {
+  --pc-bg: #fff;
+  --pc-text: #1f2937;
+  --pc-muted: #6b7280;
+  --pc-border: #e5e7eb;
+  --pc-hover-bg: rgba(0, 0, 0, 0.04);
+  --pc-input-bg: #fff;
+  --pc-input-border: #d1d5db;
+  --pc-accent: #2563eb;
+  --pc-accent-hover: #1d4ed8;
+  --pc-accent-ring: rgba(37, 99, 235, 0.18);
+  --pc-badge-bg: #eef2ff;
+  --pc-badge-text: #4338ca;
+
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--pc-text);
+  background: var(--pc-bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  .stac-browser {
+    --pc-bg: #111827;
+    --pc-text: #e5e7eb;
+    --pc-muted: #9ca3af;
+    --pc-border: #374151;
+    --pc-hover-bg: rgba(255, 255, 255, 0.06);
+    --pc-input-bg: #1f2937;
+    --pc-input-border: #4b5563;
+    --pc-accent: #3b82f6;
+    --pc-accent-hover: #60a5fa;
+    --pc-accent-ring: rgba(59, 130, 246, 0.3);
+    --pc-badge-bg: #1e293b;
+    --pc-badge-text: #c7d2fe;
+  }
+}
+
+/* Toolbar: catalog picker + URL input */
+.stac-toolbar {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px;
-  font-size: 13px;
-  line-height: 1.5;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--pc-border);
 }
 
-.geolibre-plugin-right-panel h2 {
-  margin: 0;
-  font-size: 14px;
+.stac-preset-select,
+.stac-url-input {
+  width: 100%;
+  padding: 7px 9px;
+  font-size: 13px;
+  color: var(--pc-text);
+  background: var(--pc-input-bg);
+  border: 1px solid var(--pc-input-border);
+  border-radius: 6px;
+  outline: none;
+}
+
+.stac-url-input:focus,
+.stac-preset-select:focus {
+  border-color: var(--pc-accent);
+  box-shadow: 0 0 0 3px var(--pc-accent-ring);
+}
+
+.stac-url-row {
+  display: flex;
+  gap: 6px;
+}
+
+.stac-url-row .stac-url-input {
+  flex: 1 1 auto;
+}
+
+.stac-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--pc-text);
+  background: var(--pc-hover-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.stac-btn:hover {
+  background: var(--pc-border);
+}
+
+.stac-btn-primary {
+  color: #fff;
+  background: var(--pc-accent);
+  border-color: var(--pc-accent);
+}
+
+.stac-btn-primary:hover {
+  background: var(--pc-accent-hover);
+  border-color: var(--pc-accent-hover);
+}
+
+.stac-btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Breadcrumbs */
+.stac-breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 12px 0;
+}
+
+.stac-breadcrumbs:empty {
+  display: none;
+}
+
+.stac-crumb {
+  padding: 2px 4px;
+  font-size: 12px;
+  color: var(--pc-accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.stac-crumb:hover {
+  background: var(--pc-hover-bg);
+}
+
+.stac-crumb-current {
+  color: var(--pc-muted);
+  cursor: default;
   font-weight: 600;
 }
 
-.geolibre-plugin-right-panel p {
-  margin: 0;
+.stac-crumb-sep {
+  color: var(--pc-muted);
+  font-size: 12px;
+}
+
+/* Status line */
+.stac-status {
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.stac-status:empty {
+  display: none;
+}
+
+.stac-status-loading {
+  padding: 8px 12px;
+  color: var(--pc-muted);
+}
+
+.stac-status-error {
+  padding: 8px 12px;
+  color: #b91c1c;
+  background: rgba(185, 28, 28, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  .stac-status-error {
+    color: #fca5a5;
+  }
+}
+
+/* Scrollable body */
+.stac-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.stac-empty-state {
+  color: var(--pc-muted);
+  padding: 16px 4px;
+}
+
+.stac-empty-state p {
+  margin: 0 0 8px;
+}
+
+.stac-empty-hint {
+  font-size: 12px;
   opacity: 0.85;
 }
 
-/* Demo floating panel body (see src/lib/geolibre/floating-panel.ts). The host
-   provides the draggable card chrome and theme; the plugin styles its body. */
-.geolibre-plugin-floating-panel {
+.stac-empty {
+  color: var(--pc-muted);
+  font-size: 12px;
+  padding: 8px 0;
+  margin: 0;
+}
+
+/* Node header */
+.stac-node-header {
+  margin-bottom: 12px;
+}
+
+.stac-node-title {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.stac-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  color: var(--pc-badge-text);
+  background: var(--pc-badge-bg);
+}
+
+.stac-node-desc {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--pc-muted);
+}
+
+.stac-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.stac-keyword {
+  padding: 1px 7px;
+  font-size: 11px;
+  color: var(--pc-muted);
+  background: var(--pc-hover-bg);
+  border-radius: 999px;
+}
+
+/* Sections */
+.stac-section {
+  margin-top: 16px;
+}
+
+.stac-section-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--pc-muted);
+}
+
+/* Child catalogs/collections */
+.stac-child-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
+  gap: 4px;
+}
+
+.stac-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  background: none;
+  border: 1px solid var(--pc-border);
+  border-radius: 6px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.stac-child:hover {
+  background: var(--pc-hover-bg);
+  border-color: var(--pc-accent);
+}
+
+.stac-child-title {
   font-size: 13px;
-  line-height: 1.5;
+  font-weight: 500;
 }
 
-.geolibre-plugin-floating-panel h2 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
+.stac-child-desc {
+  font-size: 11px;
+  color: var(--pc-muted);
 }
 
-.geolibre-plugin-floating-panel p {
-  margin: 0;
-  opacity: 0.85;
+/* Item list */
+.stac-item-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stac-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.stac-item:hover {
+  background: var(--pc-hover-bg);
+  border-color: var(--pc-border);
+}
+
+.stac-item-thumb {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--pc-hover-bg);
+  flex: 0 0 auto;
+}
+
+.stac-item-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.stac-item-id {
+  font-size: 12px;
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.stac-item-date {
+  font-size: 11px;
+  color: var(--pc-muted);
+}
+
+.stac-load-more-wrap {
+  margin-top: 8px;
+}
+
+.stac-load-more {
+  width: 100%;
+}
+
+/* Item detail */
+.stac-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stac-back {
+  align-self: flex-start;
+  padding: 4px 2px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--pc-accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.stac-back:hover {
+  text-decoration: underline;
+}
+
+.stac-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+/* Definition list (properties) */
+.stac-def-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--pc-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.stac-def-row {
+  display: flex;
+  gap: 8px;
+  padding: 5px 9px;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.stac-def-row:last-child {
+  border-bottom: none;
+}
+
+.stac-def-key {
+  flex: 0 0 42%;
+  font-size: 11px;
+  color: var(--pc-muted);
+  word-break: break-word;
+}
+
+.stac-def-value {
+  flex: 1 1 auto;
+  font-size: 12px;
+  word-break: break-word;
+}
+
+/* Assets */
+.stac-asset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stac-asset {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 1px solid var(--pc-border);
+  border-radius: 6px;
+}
+
+.stac-asset-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.stac-asset-title {
+  font-size: 12px;
+  font-weight: 500;
+  word-break: break-word;
+}
+
+.stac-asset-meta {
+  font-size: 11px;
+  color: var(--pc-muted);
+  word-break: break-word;
+}
+
+.stac-asset-link {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--pc-accent);
+  text-decoration: none;
+}
+
+.stac-asset-link:hover {
+  text-decoration: underline;
+}
+
+/* Scrollbar */
+.stac-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.stac-body::-webkit-scrollbar-thumb {
+  background: var(--pc-border);
+  border-radius: 4px;
 }

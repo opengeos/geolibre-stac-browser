@@ -1,14 +1,17 @@
 import { PluginControl } from "./lib/core/PluginControl";
-import type { PluginState } from "./lib/core/types";
 import type {
   GeoLibreAppAPI,
   GeoLibreMapControlPosition,
   GeoLibrePlugin,
 } from "./lib/geolibre/host-api";
-import { registerTemplateFloatingPanel } from "./lib/geolibre/floating-panel";
-import { registerTemplateRightPanel } from "./lib/geolibre/right-panel";
-import { registerTemplateToolbarMenu } from "./lib/geolibre/toolbar-menu";
-import { PLUGIN_DATA_PARAM, maybeHandleDeepLink } from "./lib/utils/deep-link";
+import { createCogRenderer } from "./lib/geolibre/cog-renderer";
+import {
+  registerStacBrowserPanel,
+  STAC_PANEL_ID,
+  type StacPanelHandle,
+} from "./lib/geolibre/right-panel";
+import { registerStacToolbarMenu } from "./lib/geolibre/toolbar-menu";
+import { maybeHandleDeepLink, STAC_URL_PARAM } from "./lib/utils/deep-link";
 import "./lib/styles/plugin-control.css";
 
 // The host API is generic over the control type; bind it to this plugin's
@@ -17,62 +20,27 @@ type AppAPI = GeoLibreAppAPI<PluginControl>;
 
 let control: PluginControl | null = null;
 let position: GeoLibreMapControlPosition = "top-right";
-let pendingState: Partial<PluginState> | null = null;
-// Disposers for the demo UI surfaces; each is null when the host does not
-// provide that surface. See ./lib/geolibre/{right-panel,floating-panel,
-// toolbar-menu}.ts.
-let disposeRightPanel: (() => void) | null = null;
-let disposeFloatingPanel: (() => void) | null = null;
+let panel: StacPanelHandle | null = null;
 let disposeToolbarMenu: (() => void) | null = null;
 
+/** Create the small map control whose button opens the STAC Browser panel. */
 function createControl(app: AppAPI): PluginControl {
-  const nextControl = new PluginControl({
-    collapsed: pendingState?.collapsed ?? true,
-    panelWidth: pendingState?.panelWidth ?? 300,
-    title: "GeoLibre Plugin Template",
-    // Bind optional host capabilities; each falls back to a no-op on hosts (or
-    // standalone usage) that do not provide them.
-    pickFiles: () => app.pickLocalDirectoryFiles?.() ?? Promise.resolve(null),
-    registerNativeLayer: (layer) => app.registerExternalNativeLayer?.(layer),
-    unregisterNativeLayer: (id) => app.unregisterExternalNativeLayer?.(id),
+  return new PluginControl({
+    title: "STAC Browser",
+    collapsed: true,
+    // Clicking the control opens the right-side STAC Browser instead of the
+    // control's own dropdown.
+    onButtonClick: () => {
+      app.openRightPanel?.(STAC_PANEL_ID);
+    },
   });
-
-  if (pendingState) {
-    nextControl.setState(pendingState);
-  }
-
-  return nextControl;
-}
-
-function isPluginState(value: unknown): value is Partial<PluginState> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-  if ("collapsed" in candidate && typeof candidate.collapsed !== "boolean") {
-    return false;
-  }
-  if ("panelWidth" in candidate && typeof candidate.panelWidth !== "number") {
-    return false;
-  }
-  if (
-    "data" in candidate &&
-    (typeof candidate.data !== "object" ||
-      candidate.data === null ||
-      Array.isArray(candidate.data))
-  ) {
-    return false;
-  }
-
-  return true;
 }
 
 export const plugin: GeoLibrePlugin<PluginControl> = {
-  id: "geolibre-plugin-template",
-  name: "GeoLibre Plugin Template",
+  id: "geolibre-stac-browser",
+  name: "GeoLibre STAC Browser",
   version: "0.1.0",
-  urlParameterNames: [PLUGIN_DATA_PARAM],
+  urlParameterNames: [STAC_URL_PARAM],
   activate(app) {
     control = control ?? createControl(app);
     const added = app.addMapControl(control, position);
@@ -80,29 +48,32 @@ export const plugin: GeoLibrePlugin<PluginControl> = {
       control = null;
       return false;
     }
-    // Demonstrate the native plugin UI surfaces. Remove any you do not need
-    // (and their imports) if your plugin only needs a map control. The right
-    // panel opens immediately; the floating panel is registered and opened on
-    // demand from the toolbar menu.
-    disposeRightPanel = registerTemplateRightPanel(app);
-    disposeFloatingPanel = registerTemplateFloatingPanel(app);
-    disposeToolbarMenu = registerTemplateToolbarMenu(app);
+
+    const getMap = () => control?.getMap() ?? null;
+    const cog = createCogRenderer(app, getMap);
+
+    panel = registerStacBrowserPanel(app, { getMap, cog });
+    disposeToolbarMenu = registerStacToolbarMenu(app, { panel });
   },
-  // Deep link: GeoLibre auto-activates this plugin when a URL carries a
-  // parameter it owns and dispatches the parsed parameters here, e.g.
-  // ?plugin-data=https://example.com/dataset.zip
-  handleUrlParameters(_app, params) {
-    if (control) return maybeHandleDeepLink(control, params);
+  // Deep link: GeoLibre auto-activates this plugin when a URL carries the `stac`
+  // parameter and dispatches it here, e.g.
+  // ?stac=https://earth-search.aws.element84.com/v1
+  handleUrlParameters(app, params) {
+    const browser = panel?.getBrowser();
+    if (browser) {
+      app.openRightPanel?.(STAC_PANEL_ID);
+      return maybeHandleDeepLink(
+        { loadCatalog: (url) => browser.loadCatalog(url) },
+        params,
+      );
+    }
   },
   deactivate(app) {
     disposeToolbarMenu?.();
     disposeToolbarMenu = null;
-    disposeFloatingPanel?.();
-    disposeFloatingPanel = null;
-    disposeRightPanel?.();
-    disposeRightPanel = null;
+    panel?.dispose();
+    panel = null;
     if (!control) return;
-    pendingState = control.getState();
     app.removeMapControl(control);
     control = null;
   },
@@ -116,18 +87,9 @@ export const plugin: GeoLibrePlugin<PluginControl> = {
     app.removeMapControl(control);
     const added = app.addMapControl(control, position);
     if (!added) {
-      pendingState = control.getState();
       control = null;
       return false;
     }
-  },
-  getProjectState() {
-    return control?.getState() ?? pendingState ?? undefined;
-  },
-  applyProjectState(_app, state) {
-    if (!isPluginState(state)) return false;
-    pendingState = state;
-    control?.setState(state);
   },
 };
 
