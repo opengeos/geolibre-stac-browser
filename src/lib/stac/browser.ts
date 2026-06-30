@@ -14,11 +14,13 @@ import {
   classifyStac,
   getLink,
   getLinks,
+  resolveUrl,
   selfUrl,
   stacTitle,
 } from "./client";
 import { DEFAULT_CATALOGS, type StacCatalogPreset } from "./catalogs";
 import { clear, defRow, el } from "./dom";
+import { buildSearchBody, type SearchParams } from "./search";
 import {
   boundsOfCollection,
   boundsOfItems,
@@ -81,6 +83,10 @@ export class StacBrowser {
   private nav: NavLevel[] = [];
   private items: StacItem[] = [];
   private itemsPage: StacItemsPage | null = null;
+  /** STAC API `/search` endpoint discovered while browsing, if any. */
+  private searchLink: string | null = null;
+  /** Whether the search form is expanded. */
+  private searchOpen = false;
   /** Monotonic token so a slow fetch cannot overwrite a newer navigation. */
   private loadSeq = 0;
 
@@ -129,6 +135,8 @@ export class StacBrowser {
     if (!trimmed) return;
     if (this.urlInput) this.urlInput.value = trimmed;
     this.map.clear();
+    this.searchLink = null;
+    this.searchOpen = false;
     this.nav = [{ title: trimmed, url: trimmed, type: "unknown" }];
     await this.openLevel(0);
   }
@@ -196,6 +204,7 @@ export class StacBrowser {
     this.nav = this.nav.slice(0, index + 1);
     this.items = [];
     this.itemsPage = null;
+    this.searchOpen = false;
     this.renderBreadcrumbs();
     this.setStatus(`Loading ${level.title}…`, "loading");
 
@@ -210,6 +219,13 @@ export class StacBrowser {
         }
       }
       if (seq !== this.loadSeq) return;
+      // Remember a STAC API search endpoint when present. Root search links
+      // stay valid as the user drills down, so we never clear a found link.
+      const base = selfUrl(level.node, level.url) ?? level.url;
+      const searchLink = getLink(level.node, "search");
+      if (searchLink?.href) {
+        this.searchLink = resolveUrl(base, searchLink.href);
+      }
       this.renderBreadcrumbs();
       this.onTitleChange?.(level.title);
       await this.renderNode(level, seq);
@@ -243,6 +259,12 @@ export class StacBrowser {
     clear(this.bodyEl);
 
     this.bodyEl.append(this.buildNodeHeader(node, level));
+
+    // Search (STAC API only): a collapsible form that queries the discovered
+    // /search endpoint by collection, bbox, date range, and cloud cover.
+    if (this.searchLink) {
+      this.bodyEl.append(this.buildSearchSection(level));
+    }
 
     // Child catalogs / collections.
     let children: StacChildRef[] = [];
@@ -334,6 +356,194 @@ export class StacBrowser {
     }
     section.append(list);
     return section;
+  }
+
+  // --- search --------------------------------------------------------------
+
+  /** Build the collapsible STAC API search form for the current node. */
+  private buildSearchSection(level: NavLevel): HTMLElement {
+    const section = el("div", { className: "stac-section stac-search" });
+
+    const toggle = el("button", {
+      className: "stac-btn stac-search-toggle",
+      text: this.searchOpen ? "▾ Search items" : "▸ Search items",
+    });
+    section.append(toggle);
+
+    const form = el("div", { className: "stac-search-form" });
+    form.style.display = this.searchOpen ? "" : "none";
+    toggle.addEventListener("click", () => {
+      this.searchOpen = !this.searchOpen;
+      form.style.display = this.searchOpen ? "" : "none";
+      toggle.textContent = this.searchOpen ? "▾ Search items" : "▸ Search items";
+    });
+
+    // Default the collections field to the current collection, if any.
+    const defaultCollection =
+      level.type === "Collection"
+        ? String((level.node as { id?: string }).id ?? "")
+        : "";
+    const collections = this.field(form, "Collections (comma-separated)", "text");
+    collections.value = defaultCollection;
+    collections.placeholder = "e.g. sentinel-2-l2a";
+
+    // Bounding box.
+    const bboxRow = el("div", { className: "stac-search-bbox" });
+    const west = this.numField(bboxRow, "W");
+    const south = this.numField(bboxRow, "S");
+    const east = this.numField(bboxRow, "E");
+    const north = this.numField(bboxRow, "N");
+    form.append(this.labelled("Bounding box", bboxRow));
+    const useView = el("button", {
+      className: "stac-btn stac-search-useview",
+      text: "Use current map view",
+      onClick: () => {
+        const view = this.map.getViewBounds();
+        if (!view) return;
+        west.value = view[0].toFixed(4);
+        south.value = view[1].toFixed(4);
+        east.value = view[2].toFixed(4);
+        north.value = view[3].toFixed(4);
+      },
+    });
+    form.append(useView);
+
+    // Date range.
+    const dateRow = el("div", { className: "stac-search-dates" });
+    const dateStart = this.dateField(dateRow, "From");
+    const dateEnd = this.dateField(dateRow, "To");
+    form.append(this.labelled("Date range", dateRow));
+
+    // Cloud cover + limit.
+    const cloud = this.field(form, "Max cloud cover (%)", "number");
+    cloud.placeholder = "e.g. 20";
+    const limit = this.field(form, "Limit", "number");
+    limit.value = "20";
+
+    const status = el("div", { className: "stac-search-status" });
+    const submit = el("button", {
+      className: "stac-btn stac-btn-primary stac-search-submit",
+      text: "Search",
+      onClick: () => {
+        const params: SearchParams = {
+          collections: collections.value
+            ? collections.value.split(",")
+            : undefined,
+          bbox: readBbox(west, south, east, north),
+          dateStart: dateStart.value || undefined,
+          dateEnd: dateEnd.value || undefined,
+          cloudCover: cloud.value !== "" ? Number(cloud.value) : null,
+          limit: limit.value ? Number(limit.value) : 20,
+        };
+        void this.runSearch(params, status);
+      },
+    });
+    form.append(submit, status);
+
+    section.append(form);
+    return section;
+  }
+
+  /** Execute a search and render its results. */
+  private async runSearch(
+    params: SearchParams,
+    status: HTMLElement,
+  ): Promise<void> {
+    if (!this.searchLink) return;
+    const seq = ++this.loadSeq;
+    status.className = "stac-search-status stac-status-loading";
+    status.textContent = "Searching…";
+    try {
+      const page = await this.client.search(
+        this.searchLink,
+        buildSearchBody(params),
+      );
+      if (seq !== this.loadSeq) return;
+      status.textContent = "";
+      this.showSearchResults(page);
+    } catch (error) {
+      if (seq !== this.loadSeq) return;
+      status.className = "stac-search-status stac-status-error";
+      status.textContent =
+        error instanceof StacError ? error.message : String(error);
+    }
+  }
+
+  /** Replace the body with a search-results item list. */
+  private showSearchResults(page: StacItemsPage): void {
+    const backIndex = this.nav.length - 1;
+    this.items = [];
+    this.itemsPage = page;
+    clear(this.bodyEl);
+
+    this.bodyEl.append(
+      el("button", {
+        className: "stac-back",
+        text: "← Back to browse",
+        onClick: () => {
+          this.map.clear();
+          void this.openLevel(backIndex);
+        },
+      }),
+    );
+
+    const section = el("div", { className: "stac-section" });
+    const matched =
+      page.matched != null ? ` · ${page.matched} matched` : "";
+    section.append(
+      el("h3", {
+        className: "stac-section-title",
+        text: `Search results${matched}`,
+      }),
+    );
+    const list = el("div", { className: "stac-item-list" });
+    section.append(list, this.buildLoadMore(list));
+    this.bodyEl.append(section);
+
+    this.appendItems(page.items, list);
+    this.refreshFootprints(true);
+    this.updateLoadMore(list);
+  }
+
+  /** Create a labelled input and append it to `parent`. */
+  private field(
+    parent: HTMLElement,
+    label: string,
+    type: string,
+  ): HTMLInputElement {
+    const input = el("input", {
+      className: "stac-search-input",
+      attrs: { type },
+    }) as HTMLInputElement;
+    parent.append(this.labelled(label, input));
+    return input;
+  }
+
+  /** Create a small numeric input (used for bbox corners). */
+  private numField(parent: HTMLElement, placeholder: string): HTMLInputElement {
+    const input = el("input", {
+      className: "stac-search-num",
+      attrs: { type: "number", step: "any", placeholder },
+    }) as HTMLInputElement;
+    parent.append(input);
+    return input;
+  }
+
+  /** Create a date input within a row. */
+  private dateField(parent: HTMLElement, label: string): HTMLInputElement {
+    const input = el("input", {
+      className: "stac-search-date",
+      attrs: { type: "date", "aria-label": label },
+    }) as HTMLInputElement;
+    parent.append(input);
+    return input;
+  }
+
+  /** Wrap a control with a label. */
+  private labelled(label: string, control: HTMLElement): HTMLElement {
+    const wrap = el("label", { className: "stac-search-field" });
+    wrap.append(el("span", { className: "stac-search-label", text: label }), control);
+    return wrap;
   }
 
   // --- rendering: items ----------------------------------------------------
@@ -524,7 +734,10 @@ export class StacBrowser {
           el("button", {
             className: "stac-btn",
             text: "Preview on map",
-            onClick: () => this.map.showPreview(preview.href, bounds),
+            onClick: () => {
+              this.map.showPreview(preview.href, bounds);
+              this.map.fitBounds(bounds);
+            },
           }),
         );
       }
@@ -715,4 +928,18 @@ function shortMediaType(type: string): string {
 /** Truncate a string to a maximum length with an ellipsis. */
 function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+/** Read a bbox from four corner inputs, or `null` when any is blank/invalid. */
+function readBbox(
+  west: HTMLInputElement,
+  south: HTMLInputElement,
+  east: HTMLInputElement,
+  north: HTMLInputElement,
+): [number, number, number, number] | null {
+  const inputs = [west, south, east, north];
+  if (inputs.some((input) => input.value.trim() === "")) return null;
+  const values = inputs.map((input) => Number(input.value));
+  if (values.some((value) => !Number.isFinite(value))) return null;
+  return [values[0], values[1], values[2], values[3]];
 }

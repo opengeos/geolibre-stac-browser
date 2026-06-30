@@ -1,5 +1,5 @@
 import maplibregl from 'maplibre-gl';
-import { StacBrowser, createStacMapBridge } from '../../src/index';
+import { StacBrowserControl } from '../../src/index';
 import '../../src/index.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -14,17 +14,14 @@ const map = new maplibregl.Map({
 map.addControl(new maplibregl.NavigationControl(), 'top-right');
 map.addControl(new maplibregl.FullscreenControl(), 'top-right');
 
-// Mount the STAC browser into the sidebar. The map bridge wires footprints,
-// thumbnail previews, and map framing to the MapLibre map. (Full-resolution COG
-// rendering is a GeoLibre-host capability and is not available in this
-// standalone demo, so the browser falls back to thumbnail previews.)
-const sidebar = document.getElementById('sidebar') as HTMLElement;
-const bridge = createStacMapBridge(() => map);
-
-const browser = new StacBrowser({
-  map: bridge,
-  // Load a catalog on startup so the demo shows content immediately.
-  initialUrl: 'https://earth-search.aws.element84.com/v1',
-});
-
-browser.mount(sidebar);
+// Add the STAC browser as a collapsible control: a toggle icon opens a panel
+// hosting the browser, which drives footprints, previews, and framing on the
+// map. (Full-resolution COG rendering is a GeoLibre-host capability, so this
+// standalone demo falls back to thumbnail previews.)
+map.addControl(
+  new StacBrowserControl({
+    collapsed: false,
+    initialUrl: 'https://earth-search.aws.element84.com/v1',
+  }),
+  'top-left',
+);

@@ -16,15 +16,20 @@ widget you can drop into any MapLibre app.
   or a STAC API root; it traverses catalogs, collections, and items using `child`,
   `data`, `item`, and `items` links, with automatic STAC API `/collections` listing.
 - **Curated catalog presets** - One-click access to Microsoft Planetary Computer,
-  Earth Search (AWS), USGS LandsatLook, Digital Earth Africa, and Digital Earth
-  Australia, plus a URL box for any other catalog.
+  Earth Search (AWS), Digital Earth Australia, NASA CMR STAC, Maxar Open Data, and
+  Google Earth Engine, plus a URL box for any other catalog.
+- **Search** - On STAC APIs, search items by collection, bounding box (with a
+  "Use current map view" shortcut), date range, and maximum cloud cover, with
+  paged results.
 - **Footprints on the map** - Item footprints are drawn as you browse, with the
   selected item highlighted and the map framed to its extent.
 - **Item detail** - Properties, the full asset list (with direct links), and a
   thumbnail.
 - **COG previews** - When the GeoLibre host provides its raster engine, render an
   item's Cloud Optimized GeoTIFF asset at full resolution; otherwise fall back to a
-  thumbnail image overlay placed on the item footprint.
+  thumbnail image overlay placed on (and zoomed to) the item footprint.
+- **Collapsible** - A toggle icon opens/closes the browser; it never occupies a
+  fixed sidebar (a MapLibre control standalone, the host's right panel in GeoLibre).
 - **Paged item loading** - "Load more" follows STAC API `next` links and batches
   static `item` links.
 - **Deep linking** - Open GeoLibre with `?stac=<catalog-url>` to auto-activate the
@@ -39,7 +44,7 @@ npm install geolibre-stac-browser maplibre-gl
 
 ```typescript
 import maplibregl from "maplibre-gl";
-import { StacBrowser, createStacMapBridge } from "geolibre-stac-browser";
+import { StacBrowserControl } from "geolibre-stac-browser";
 import "geolibre-stac-browser/style.css";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -50,16 +55,19 @@ const map = new maplibregl.Map({
   zoom: 2,
 });
 
-// Mount the browser into any element; the bridge wires footprints/previews/framing
-// to the map.
-const browser = new StacBrowser({
-  map: createStacMapBridge(() => map),
-  initialUrl: "https://earth-search.aws.element84.com/v1",
-});
-browser.mount(document.getElementById("sidebar")!);
+// A collapsible control: a toggle icon opens the browser, which drives
+// footprints, previews, and framing on the map.
+map.addControl(
+  new StacBrowserControl({
+    initialUrl: "https://earth-search.aws.element84.com/v1",
+  }),
+  "top-left",
+);
 ```
 
-See [`examples/basic`](examples/basic) (vanilla) and [`examples/react`](examples/react)
+Prefer to mount the browser yourself (for example, into your own sidebar)? Use the
+lower-level `StacBrowser` with `createStacMapBridge(() => map)`. See
+[`examples/basic`](examples/basic) (vanilla) and [`examples/react`](examples/react)
 (React) for complete, runnable setups.
 
 ## Build a GeoLibre plugin bundle
@@ -110,14 +118,16 @@ npm run serve:geolibre -- 8000
 
 On `activate`, the plugin:
 
-1. Adds a small map control whose button opens the STAC Browser.
-2. Registers the **STAC Browser** as a native right-sidebar panel.
+1. Adds a small map control whose icon toggles the STAC Browser open/closed.
+2. Registers the **STAC Browser** as a native right-sidebar panel (collapsed until
+   opened, so it never occupies the workspace unprompted).
 3. Registers a **STAC** toolbar menu (open the browser, load a preset catalog,
    clear map layers).
 
 The browser renders footprints and the selection as GeoJSON layers on the map, and
 frames the view as you navigate. Item thumbnails preview as an image overlay placed
-on the item footprint.
+on (and zoomed to) the item footprint, and STAC APIs can be searched by bbox, date
+range, and cloud cover.
 
 ### COG rendering (and the deck.gl caveat)
 
@@ -142,12 +152,14 @@ image overlay. The contract lives in
 
 | Export | Description |
 | ------ | ----------- |
+| `StacBrowserControl` | A collapsible MapLibre control hosting the browser (standalone usage). |
 | `StacBrowser` | The framework-free browser widget (`mount`, `loadCatalog`, `clearMap`, `destroy`). |
 | `StacClient` | DOM-free STAC traversal (`fetchJson`, `getChildren`, `loadItems`, `search`). |
 | `createStacMapBridge(getMap, cog?)` | A `StacMapBridge` that draws footprints/previews on a MapLibre map. |
 | `createCogRenderer(app, getMap)` | COG renderer backed by the host raster engine. |
 | `registerStacBrowserPanel(app, options)` | Register the browser as a GeoLibre right panel. |
 | `registerStacToolbarMenu(app, options)` | Register the STAC toolbar menu. |
+| `buildSearchBody(params)` | Compose a STAC API `/search` request body from form values. |
 | `DEFAULT_CATALOGS` | The built-in catalog presets. |
 | geo helpers | `itemToFootprint`, `itemsToFootprints`, `boundsOfItems`, `boundsOfCollection`, `normalizeBbox`, ... |
 
@@ -161,7 +173,9 @@ src/
 ├── geolibre.ts                 # GeoLibre plugin entry point
 ├── index.ts                    # Library entry point (re-exports)
 └── lib/
-    ├── core/PluginControl.ts   # MapLibre control (the launcher button)
+    ├── core/
+    │   ├── PluginControl.ts    # MapLibre control (the GeoLibre launcher button)
+    │   └── StacBrowserControl.ts # collapsible control hosting the browser
     ├── geolibre/
     │   ├── host-api.ts         # GeoLibre host-plugin contract
     │   ├── right-panel.ts      # registerStacBrowserPanel()
@@ -171,6 +185,7 @@ src/
     ├── stac/
     │   ├── client.ts           # STAC traversal client (DOM-free)
     │   ├── browser.ts          # StacBrowser UI
+    │   ├── search.ts           # STAC API /search request builder
     │   ├── geo.ts              # footprint/bounds helpers
     │   ├── catalogs.ts         # preset catalogs
     │   ├── map-bridge.ts       # StacMapBridge interface

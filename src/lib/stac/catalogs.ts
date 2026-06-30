@@ -1,7 +1,8 @@
 /**
  * A curated list of well-known, public STAC catalogs and APIs to seed the
  * browser's catalog picker. All are CORS-enabled so they load directly from a
- * browser. Users can also type any other catalog URL.
+ * browser (verified against each root). Users can also type any other catalog
+ * URL.
  */
 
 /** A preset catalog entry shown in the browser's quick-pick list. */
@@ -23,15 +24,19 @@ export const DEFAULT_CATALOGS: StacCatalogPreset[] = [
     url: "https://earth-search.aws.element84.com/v1",
   },
   {
-    name: "USGS LandsatLook",
-    url: "https://landsatlook.usgs.gov/stac-server",
-  },
-  {
-    name: "Digital Earth Africa",
-    url: "https://explorer.digitalearth.africa/stac",
-  },
-  {
     name: "Digital Earth Australia",
-    url: "https://explorer.sandbox.dea.ga.gov.au/stac",
+    url: "https://explorer.dea.ga.gov.au/stac",
+  },
+  {
+    name: "NASA CMR STAC",
+    url: "https://cmr.earthdata.nasa.gov/stac",
+  },
+  {
+    name: "Maxar Open Data",
+    url: "https://maxar-opendata.s3.amazonaws.com/events/catalog.json",
+  },
+  {
+    name: "Google Earth Engine",
+    url: "https://storage.googleapis.com/earthengine-stac/catalog/catalog.json",
   },
 ];
