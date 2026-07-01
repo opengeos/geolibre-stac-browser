@@ -38,6 +38,7 @@ describe("StacBrowserControl", () => {
     control.onAdd(fakeMap());
     const panel = document.querySelector(".stac-control-panel") as HTMLElement;
     expect(panel.classList.contains("expanded")).toBe(false);
+    expect(panel.querySelectorAll(".stac-control-resize-handle")).toHaveLength(2);
 
     control.expand();
     expect(panel.classList.contains("expanded")).toBe(true);
