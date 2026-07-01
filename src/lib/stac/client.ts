@@ -59,7 +59,11 @@ export function classifyStac(obj: unknown): StacObjectType {
 
 /** Read the `links` array from any STAC document. */
 function linksOf(obj: unknown): StacLink[] {
-  if (obj && typeof obj === "object" && Array.isArray((obj as StacObject).links)) {
+  if (
+    obj &&
+    typeof obj === "object" &&
+    Array.isArray((obj as StacObject).links)
+  ) {
     return (obj as StacObject).links as StacLink[];
   }
   return [];
@@ -91,7 +95,8 @@ export function getLink(obj: unknown, rel: string): StacLink | undefined {
 export function stacTitle(obj: unknown, fallback = "Untitled"): string {
   if (obj && typeof obj === "object") {
     const record = obj as Record<string, unknown>;
-    if (typeof record.title === "string" && record.title.trim()) return record.title;
+    if (typeof record.title === "string" && record.title.trim())
+      return record.title;
     if (typeof record.id === "string" && record.id.trim()) return record.id;
   }
   return fallback;
@@ -187,7 +192,10 @@ export class StacClient {
    * @param baseUrl - The URL the node was fetched from (for relative links).
    * @returns Child references in display order.
    */
-  async getChildren(node: StacObject, baseUrl: string): Promise<StacChildRef[]> {
+  async getChildren(
+    node: StacObject,
+    baseUrl: string,
+  ): Promise<StacChildRef[]> {
     const childLinks = getLinks(node, "child");
     if (childLinks.length > 0) {
       return childLinks.map((link) => {
@@ -256,7 +264,10 @@ export class StacClient {
   ): Promise<StacItemsPage> {
     return this.loadItemCollection(searchUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
       body: JSON.stringify(body),
     });
   }
@@ -273,7 +284,9 @@ export class StacClient {
       numberMatched?: number;
     }>(url, init);
 
-    const items = collection.features ?? [];
+    const items = (collection.features ?? []).map((item) =>
+      resolveItemAssetHrefs(item, selfUrl(item, url) ?? url),
+    );
     const matched = collection.context?.matched ?? collection.numberMatched;
 
     const nextLink = getLink(collection, "next");
@@ -309,7 +322,11 @@ export class StacClient {
     const slice = links.slice(offset, offset + ITEM_LINK_PAGE_SIZE);
     const resolved = await Promise.all(
       slice.map((url) =>
-        this.fetchJson<StacItem>(url).catch(() => null),
+        this.fetchJson<StacItem>(url)
+          .then((item) =>
+            resolveItemAssetHrefs(item, selfUrl(item, url) ?? url),
+          )
+          .catch(() => null),
       ),
     );
     const items = resolved.filter((item): item is StacItem => item !== null);
@@ -322,4 +339,15 @@ export class StacClient {
 
     return { items, next, matched: links.length };
   }
+}
+
+/** Resolve relative item asset hrefs against the item document URL. */
+function resolveItemAssetHrefs(item: StacItem, baseUrl: string): StacItem {
+  const assets = Object.fromEntries(
+    Object.entries(item.assets ?? {}).map(([key, asset]) => [
+      key,
+      { ...asset, href: resolveUrl(baseUrl, asset.href) },
+    ]),
+  );
+  return { ...item, assets };
 }

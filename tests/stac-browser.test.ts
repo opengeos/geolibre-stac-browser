@@ -64,7 +64,7 @@ const ROUTES: Record<string, unknown> = {
       {
         type: "Feature",
         id: "item-1",
-        bbox: [0, 0, 1, 1],
+        bbox: [-10, -10, 10, 10],
         geometry: {
           type: "Polygon",
           coordinates: [
@@ -112,6 +112,7 @@ function mockBridge(): StacMapBridge {
     fitBounds: vi.fn(),
     getViewBounds: vi.fn(() => null),
     showPreview: vi.fn(),
+    showTileJson: vi.fn(),
     clearPreview: vi.fn(),
     showCog: vi.fn(),
     canShowCog: vi.fn(() => false),
@@ -139,6 +140,16 @@ describe("StacBrowser", () => {
     browser.mount(container);
   });
 
+  it("uses an alphabetized public STAC Index catalog list", () => {
+    const names = DEFAULT_CATALOGS.map((catalog) => catalog.name);
+    expect(names.length).toBeGreaterThan(80);
+    expect(names).toEqual(
+      [...names].sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: "base" }),
+      ),
+    );
+  });
+
   it("renders the toolbar and an empty state on mount", () => {
     expect(container.querySelector(".stac-toolbar")).not.toBeNull();
     expect(container.querySelector(".stac-catalog-filter")).toBeNull();
@@ -154,7 +165,13 @@ describe("StacBrowser", () => {
     const options = Array.from(select.options).map(
       (option) => option.textContent,
     );
-    expect(options).toContain("Earth Search (AWS / Element 84)");
+    expect(options[0]).toBe("Choose a catalog...");
+    expect(select.value).toBe("");
+    expect(options[1]).toBe("Enter custom STAC catalog URL");
+    expect(options[2]).toBe(
+      "African Agriculture Adaptation Atlas STAC catalog",
+    );
+    expect(options).toContain("Earth Search");
     expect(options).toContain("Enter custom STAC catalog URL");
   });
 
@@ -262,6 +279,7 @@ describe("StacBrowser", () => {
     await flush();
     await flush();
 
+    (map.fitBounds as ReturnType<typeof vi.fn>).mockClear();
     (container.querySelector(".stac-item") as HTMLButtonElement).click();
     await flush();
 
@@ -273,6 +291,105 @@ describe("StacBrowser", () => {
     expect(container.querySelector(".stac-asset-list")).not.toBeNull();
     expect(container.querySelectorAll(".stac-asset")).toHaveLength(2);
     expect(map.showSelected).toHaveBeenCalled();
+    expect(map.fitBounds).toHaveBeenCalledWith([0, 0, 1, 1]);
+  });
+
+  it("previews original COG data on the map and zooms to its footprint", async () => {
+    (map.canShowCog as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    await browser.loadCatalog("https://api/");
+    (container.querySelector(".stac-child") as HTMLButtonElement).click();
+    await flush();
+    await flush();
+    (container.querySelector(".stac-item") as HTMLButtonElement).click();
+    await flush();
+
+    (map.showCog as ReturnType<typeof vi.fn>).mockClear();
+    (map.showTileJson as ReturnType<typeof vi.fn>).mockClear();
+    (map.showPreview as ReturnType<typeof vi.fn>).mockClear();
+    (map.fitBounds as ReturnType<typeof vi.fn>).mockClear();
+
+    const preview = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Preview on map",
+    ) as HTMLButtonElement;
+    preview.click();
+
+    expect(map.showCog).toHaveBeenCalledWith("https://t/data.tif", "item-1");
+    expect(map.showTileJson).not.toHaveBeenCalled();
+    expect(map.showPreview).not.toHaveBeenCalled();
+    expect(map.fitBounds).toHaveBeenCalledWith([0, 0, 1, 1]);
+    expect(
+      (map.showCog as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      (map.fitBounds as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],
+    );
+  });
+
+  it("prefers map-ready TileJSON previews when available", async () => {
+    const itemRoute = ROUTES["https://api/collections/col/items"] as {
+      features: Array<{ assets: Record<string, unknown> }>;
+    };
+    itemRoute.features[0].assets.tilejson = {
+      href: "https://tiles.example/tilejson.json?asset=data",
+      type: "application/json",
+      roles: ["tiles"],
+    };
+    try {
+      (map.canShowCog as ReturnType<typeof vi.fn>).mockReturnValue(true);
+      await browser.loadCatalog("https://api/");
+      (container.querySelector(".stac-child") as HTMLButtonElement).click();
+      await flush();
+      await flush();
+      (container.querySelector(".stac-item") as HTMLButtonElement).click();
+      await flush();
+
+      (map.showTileJson as ReturnType<typeof vi.fn>).mockClear();
+      (map.showCog as ReturnType<typeof vi.fn>).mockClear();
+      (map.showPreview as ReturnType<typeof vi.fn>).mockClear();
+      (map.fitBounds as ReturnType<typeof vi.fn>).mockClear();
+
+      const preview = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "Preview on map",
+      ) as HTMLButtonElement;
+      preview.click();
+
+      expect(map.showTileJson).toHaveBeenCalledWith(
+        "https://tiles.example/tilejson.json?asset=data",
+        "item-1",
+      );
+      expect(map.showCog).not.toHaveBeenCalled();
+      expect(map.showPreview).not.toHaveBeenCalled();
+      expect(map.fitBounds).toHaveBeenCalledWith([0, 0, 1, 1]);
+    } finally {
+      delete itemRoute.features[0].assets.tilejson;
+    }
+  });
+
+  it("zooms to the footprint after fallback image preview", async () => {
+    await browser.loadCatalog("https://api/");
+    (container.querySelector(".stac-child") as HTMLButtonElement).click();
+    await flush();
+    await flush();
+    (container.querySelector(".stac-item") as HTMLButtonElement).click();
+    await flush();
+
+    (map.showPreview as ReturnType<typeof vi.fn>).mockClear();
+    (map.fitBounds as ReturnType<typeof vi.fn>).mockClear();
+
+    const preview = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Preview on map",
+    ) as HTMLButtonElement;
+    preview.click();
+
+    expect(map.showPreview).toHaveBeenCalledWith(
+      "https://t/thumb.png",
+      [0, 0, 1, 1],
+    );
+    expect(map.fitBounds).toHaveBeenCalledWith([0, 0, 1, 1]);
+    expect(
+      (map.showPreview as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      (map.fitBounds as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],
+    );
   });
 
   it("shows a search form for an API root and renders search results", async () => {

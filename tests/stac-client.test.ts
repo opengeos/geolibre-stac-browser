@@ -90,7 +90,9 @@ describe("link helpers", () => {
 describe("titleFromUrl", () => {
   it("uses the last meaningful path segment", () => {
     expect(
-      titleFromUrl("https://earth-search.aws.element84.com/v1/collections/landsat-c2-l2"),
+      titleFromUrl(
+        "https://earth-search.aws.element84.com/v1/collections/landsat-c2-l2",
+      ),
     ).toBe("landsat-c2-l2");
   });
 
@@ -168,7 +170,14 @@ describe("StacClient.loadItems", () => {
   it("loads an ItemCollection and wires GET-style paging", async () => {
     const page1 = {
       type: "FeatureCollection",
-      features: [{ type: "Feature", id: "i1" }],
+      features: [
+        {
+          type: "Feature",
+          id: "i1",
+          assets: { thumbnail: { href: "thumb.png" } },
+          links: [{ rel: "self", href: "collections/c/items/i1.json" }],
+        },
+      ],
       links: [{ rel: "next", href: "items?page=2" }],
       numberMatched: 2,
     };
@@ -189,6 +198,9 @@ describe("StacClient.loadItems", () => {
 
     const first = await client.loadItems(node, "https://api/c.json");
     expect(first.items.map((i) => i.id)).toEqual(["i1"]);
+    expect(first.items[0].assets.thumbnail.href).toBe(
+      "https://api/collections/c/items/thumb.png",
+    );
     expect(first.matched).toBe(2);
     expect(first.next).toBeTypeOf("function");
 
@@ -202,7 +214,12 @@ describe("StacClient.loadItems", () => {
     const itemLinks = [];
     for (let i = 0; i < 25; i += 1) {
       const url = `https://x/items/i${i}.json`;
-      routes[url] = { type: "Feature", id: `i${i}` };
+      routes[url] = {
+        type: "Feature",
+        id: `i${i}`,
+        assets: { data: { href: `./data-${i}.tif` } },
+        links: [],
+      };
       itemLinks.push({ rel: "item", href: `items/i${i}.json` });
     }
     const client = new StacClient(fetchStub(routes));
@@ -210,6 +227,7 @@ describe("StacClient.loadItems", () => {
 
     const first = await client.loadItems(node, "https://x/cat.json");
     expect(first.items).toHaveLength(20);
+    expect(first.items[0].assets.data.href).toBe("https://x/items/data-0.tif");
     expect(first.next).toBeTypeOf("function");
 
     const second = await first.next!();

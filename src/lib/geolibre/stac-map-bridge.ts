@@ -14,7 +14,11 @@ import type {
   LngLatBoundsLike,
   Map as MapLibreMap,
 } from "maplibre-gl";
-import type { Bounds, FootprintCollection, FootprintFeature } from "../stac/geo";
+import type {
+  Bounds,
+  FootprintCollection,
+  FootprintFeature,
+} from "../stac/geo";
 import type { StacMapBridge } from "../stac/map-bridge";
 
 /** Source/layer ids the bridge owns, namespaced to avoid host collisions. */
@@ -26,6 +30,8 @@ const SELECTED_FILL = "stac-browser-selected-fill";
 const SELECTED_LINE = "stac-browser-selected-line";
 const PREVIEW_SOURCE = "stac-browser-preview";
 const PREVIEW_LAYER = "stac-browser-preview-layer";
+const TILEJSON_SOURCE = "stac-browser-tilejson";
+const TILEJSON_LAYER = "stac-browser-tilejson-layer";
 
 const EMPTY: FootprintCollection = { type: "FeatureCollection", features: [] };
 
@@ -36,7 +42,11 @@ const EMPTY: FootprintCollection = { type: "FeatureCollection", features: [] };
  */
 export interface CogRenderer {
   /** Render a COG at full resolution; `id` is a stable per-item layer id. */
-  show(url: string, id: string, options?: Record<string, unknown>): void | Promise<void>;
+  show(
+    url: string,
+    id: string,
+    options?: Record<string, unknown>,
+  ): void | Promise<void>;
   /** Remove the current COG layer, if any. */
   clear(): void;
   /** Whether COG rendering is available (the host provides a raster engine). */
@@ -108,15 +118,17 @@ export function createStacMapBridge(
   const removePreview = (map: MapLibreMap): void => {
     removeLayer(map, PREVIEW_LAYER);
     removeSource(map, PREVIEW_SOURCE);
+    removeLayer(map, TILEJSON_LAYER);
+    removeSource(map, TILEJSON_SOURCE);
   };
 
   return {
     showFootprints(collection: FootprintCollection): void {
       whenReady((map) => {
         ensureFootprintLayers(map);
-        (map.getSource(FOOTPRINTS_SOURCE) as GeoJSONSource | undefined)?.setData(
-          collection as never,
-        );
+        (
+          map.getSource(FOOTPRINTS_SOURCE) as GeoJSONSource | undefined
+        )?.setData(collection as never);
       });
     },
 
@@ -133,14 +145,15 @@ export function createStacMapBridge(
     },
 
     fitBounds(bounds: Bounds): void {
-      whenReady((map) => {
-        const [w, s, e, n] = bounds;
-        const lngLat: LngLatBoundsLike = [
-          [w, s],
-          [e, n],
-        ];
-        map.fitBounds(lngLat, { padding: 40, duration: 600, maxZoom: 14 });
-      });
+      const map = getMap();
+      if (!map) return;
+      const [w, s, e, n] = bounds;
+      const lngLat: LngLatBoundsLike = [
+        [w, s],
+        [e, n],
+      ];
+      map.resize();
+      map.fitBounds(lngLat, { padding: 40, duration: 600, maxZoom: 14 });
     },
 
     getViewBounds(): Bounds | null {
@@ -152,6 +165,7 @@ export function createStacMapBridge(
 
     showPreview(url: string, bounds: Bounds): void {
       whenReady((map) => {
+        cog?.clear();
         removePreview(map);
         const [w, s, e, n] = bounds;
         const source: ImageSourceSpecification = {
@@ -170,6 +184,20 @@ export function createStacMapBridge(
           type: "raster",
           source: PREVIEW_SOURCE,
           paint: { "raster-opacity": 0.85, "raster-fade-duration": 0 },
+        });
+      });
+    },
+
+    showTileJson(url: string): void {
+      whenReady((map) => {
+        cog?.clear();
+        removePreview(map);
+        map.addSource(TILEJSON_SOURCE, { type: "raster", url });
+        map.addLayer({
+          id: TILEJSON_LAYER,
+          type: "raster",
+          source: TILEJSON_SOURCE,
+          paint: { "raster-opacity": 0.9, "raster-fade-duration": 0 },
         });
       });
     },

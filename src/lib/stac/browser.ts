@@ -22,11 +22,13 @@ import { DEFAULT_CATALOGS, type StacCatalogPreset } from "./catalogs";
 import { clear, defRow, el } from "./dom";
 import { buildSearchBody, type SearchParams } from "./search";
 import {
+  boundsOfGeometry,
   boundsOfCollection,
   boundsOfItems,
   itemToFootprint,
   itemsToFootprints,
-  normalizeBbox,
+  type Bounds,
+  type FootprintFeature,
 } from "./geo";
 import { NOOP_MAP_BRIDGE, type StacMapBridge } from "./map-bridge";
 import type {
@@ -180,17 +182,21 @@ export class StacBrowser {
     select.append(
       el("option", { text: "Choose a catalog...", attrs: { value: "" } }),
     );
-    for (const preset of this.presets) {
-      select.append(
-        el("option", { text: preset.name, attrs: { value: preset.url } }),
-      );
-    }
     select.append(
       el("option", {
         text: "Enter custom STAC catalog URL",
         attrs: { value: CUSTOM_CATALOG_VALUE },
       }),
     );
+    const presets = [...this.presets].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    );
+    for (const preset of presets) {
+      select.append(
+        el("option", { text: preset.name, attrs: { value: preset.url } }),
+      );
+    }
+    select.value = "";
 
     const row = el("div", { className: "stac-url-row" });
     this.urlInput = el("input", {
@@ -212,6 +218,7 @@ export class StacBrowser {
         this.urlInput.value = "";
         this.resetBrowser();
         this.urlInput.focus();
+        select.value = "";
         return;
       }
       if (select.value) {
@@ -219,7 +226,7 @@ export class StacBrowser {
         this.urlInput.value = url;
         void this.loadCatalog(url);
       }
-      select.selectedIndex = 0;
+      select.value = "";
     });
     row.append(this.urlInput, loadBtn);
 
@@ -731,8 +738,7 @@ export class StacBrowser {
   private selectItem(item: StacItem): void {
     const footprint = itemToFootprint(item);
     this.map.showSelected(footprint);
-    const bounds =
-      normalizeBbox(item.bbox) ?? (footprint ? boundsOfItems([item]) : null);
+    const bounds = itemFootprintBounds(item, footprint);
     if (bounds) this.map.fitBounds(bounds);
 
     clear(this.bodyEl);
@@ -765,9 +771,9 @@ export class StacBrowser {
       );
     }
 
-    // Map actions: frame the item and preview a thumbnail over its footprint.
+    // Map actions: frame the item and preview source imagery over its footprint.
     const actions = el("div", { className: "stac-detail-actions" });
-    const bounds = normalizeBbox(item.bbox) ?? boundsOfItems([item]);
+    const bounds = itemFootprintBounds(item);
     if (bounds) {
       actions.append(
         el("button", {
@@ -777,16 +783,30 @@ export class StacBrowser {
         }),
       );
 
-      // Full-resolution COG rendering when the host supports it, otherwise a
-      // lightweight thumbnail image overlay.
+      // Prefer map-ready TileJSON when catalogs expose it, then
+      // full-resolution COG rendering, and finally lightweight
+      // browser-viewable previews when original raster rendering is unavailable.
+      const tileJson = tileJsonAsset(item.assets);
       const cog = cogAsset(item.assets);
       const preview = previewAsset(item.assets);
-      if (cog && this.map.canShowCog()) {
+      if (tileJson) {
         actions.append(
           el("button", {
             className: "stac-btn stac-btn-primary",
-            text: "View on map",
-            title: cog.title || "Render this Cloud Optimized GeoTIFF",
+            text: "Preview on map",
+            title: tileJson.title || "Render map tiles for this item",
+            onClick: () => {
+              this.map.showTileJson(tileJson.href, item.id);
+              this.map.fitBounds(bounds);
+            },
+          }),
+        );
+      } else if (cog && this.map.canShowCog()) {
+        actions.append(
+          el("button", {
+            className: "stac-btn stac-btn-primary",
+            text: "Preview on map",
+            title: cog.title || "Render original Cloud Optimized GeoTIFF",
             onClick: () => {
               this.map.showCog(cog.href, item.id);
               this.map.fitBounds(bounds);
@@ -806,7 +826,7 @@ export class StacBrowser {
         );
       }
 
-      if (cog || preview) {
+      if (tileJson || cog || preview) {
         actions.append(
           el("button", {
             className: "stac-btn",
@@ -944,6 +964,29 @@ export class StacBrowser {
 
 // --- module-local helpers --------------------------------------------------
 
+/** Bounds for an item's rendered footprint, falling back to declared item bounds. */
+function itemFootprintBounds(
+  item: StacItem,
+  footprint: FootprintFeature | null = itemToFootprint(item),
+): Bounds | null {
+  return footprint
+    ? (boundsOfGeometry(footprint.geometry) ?? boundsOfItems([item]))
+    : boundsOfItems([item]);
+}
+
+/** Pick a raster TileJSON asset, if any. */
+function tileJsonAsset(
+  assets: Record<string, StacAsset> | undefined,
+): StacAsset | null {
+  if (!assets) return null;
+  const candidate = assets.tilejson;
+  if (isTileJson(candidate)) return candidate;
+  for (const asset of Object.values(assets)) {
+    if (isTileJson(asset)) return asset;
+  }
+  return null;
+}
+
 /** Pick a publicly viewable preview image asset, if any. */
 function previewAsset(
   assets: Record<string, StacAsset> | undefined,
@@ -978,6 +1021,19 @@ function cogAsset(
     if (isCog(asset)) return asset;
   }
   return null;
+}
+
+/** Whether an asset points to raster TileJSON tiles. */
+function isTileJson(asset: StacAsset | undefined): asset is StacAsset {
+  if (!asset?.href) return false;
+  const roles = asset.roles ?? [];
+  const type = asset.type?.toLowerCase() ?? "";
+  return (
+    roles.some((role) => role.toLowerCase() === "tiles") ||
+    type.includes("tilejson") ||
+    /^tilejson$/i.test(asset.title ?? "") ||
+    /tilejson\.json($|\?)/i.test(asset.href)
+  );
 }
 
 /** Whether an asset looks like a (Cloud Optimized) GeoTIFF. */
