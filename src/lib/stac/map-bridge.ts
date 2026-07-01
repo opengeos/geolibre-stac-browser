@@ -20,6 +20,8 @@ export interface StacMapBridge {
   getViewBounds(): Bounds | null;
   /** Overlay a (thumbnail) image placed at the given bounds. */
   showPreview(url: string, bounds: Bounds): void;
+  /** Add a raster TileJSON preview layer. */
+  showTileJson(url: string, id: string): void;
   /** Remove any image preview overlay. */
   clearPreview(): void;
   /**
@@ -44,6 +46,7 @@ export const NOOP_MAP_BRIDGE: StacMapBridge = {
   fitBounds: () => undefined,
   getViewBounds: () => null,
   showPreview: () => undefined,
+  showTileJson: () => undefined,
   clearPreview: () => undefined,
   showCog: () => undefined,
   canShowCog: () => false,
