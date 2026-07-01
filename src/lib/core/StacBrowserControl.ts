@@ -17,7 +17,9 @@ export interface StacBrowserControlOptions {
   initialUrl?: string;
 }
 
-const DEFAULTS: Required<Omit<StacBrowserControlOptions, "presets" | "initialUrl">> = {
+const DEFAULTS: Required<
+  Omit<StacBrowserControlOptions, "presets" | "initialUrl">
+> = {
   collapsed: true,
   panelWidth: 380,
   title: "STAC Browser",
@@ -40,8 +42,7 @@ const DEFAULTS: Required<Omit<StacBrowserControlOptions, "presets" | "initialUrl
  * ```
  */
 export class StacBrowserControl implements IControl {
-  private readonly options: StacBrowserControlOptions &
-    typeof DEFAULTS;
+  private readonly options: StacBrowserControlOptions & typeof DEFAULTS;
   private map?: MapLibreMap;
   private mapContainer?: HTMLElement;
   private container?: HTMLElement;
@@ -50,6 +51,8 @@ export class StacBrowserControl implements IControl {
   private collapsed: boolean;
   private resizeHandler: (() => void) | null = null;
   private mapResizeHandler: (() => void) | null = null;
+  private panelResizeMoveHandler: ((event: PointerEvent) => void) | null = null;
+  private panelResizeEndHandler: (() => void) | null = null;
 
   constructor(options: StacBrowserControlOptions = {}) {
     this.options = { ...DEFAULTS, ...options };
@@ -114,6 +117,7 @@ export class StacBrowserControl implements IControl {
       this.map.off("resize", this.mapResizeHandler);
       this.mapResizeHandler = null;
     }
+    this.stopPanelResize();
     this.browser?.destroy();
     this.browser = undefined;
     this.panel?.parentNode?.removeChild(this.panel);
@@ -171,16 +175,100 @@ export class StacBrowserControl implements IControl {
     const body = document.createElement("div");
     body.className = "stac-control-body";
 
-    panel.append(header, body);
+    const resizeLeft = document.createElement("div");
+    resizeLeft.className =
+      "stac-control-resize-handle stac-control-resize-handle-left";
+    resizeLeft.setAttribute("aria-hidden", "true");
+    resizeLeft.addEventListener("pointerdown", (event) =>
+      this.startPanelResize(event, "left"),
+    );
+
+    const resizeRight = document.createElement("div");
+    resizeRight.className =
+      "stac-control-resize-handle stac-control-resize-handle-right";
+    resizeRight.setAttribute("aria-hidden", "true");
+    resizeRight.addEventListener("pointerdown", (event) =>
+      this.startPanelResize(event, "right"),
+    );
+
+    panel.append(header, body, resizeLeft, resizeRight);
     return panel;
+  }
+
+  /** Begin resizing the floating panel from one of its lower corner handles. */
+  private startPanelResize(event: PointerEvent, side: "left" | "right"): void {
+    if (!this.panel || !this.mapContainer) return;
+    event.preventDefault();
+    this.stopPanelResize();
+
+    const startRect = this.panel.getBoundingClientRect();
+    const mapRect = this.mapContainer.getBoundingClientRect();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startWidth = startRect.width;
+    const startHeight = startRect.height;
+    const startLeft = startRect.left - mapRect.left;
+    const startRight = mapRect.right - startRect.right;
+    const minWidth = 300;
+    const minHeight = 320;
+    const maxWidth = Math.max(minWidth, mapRect.width - 20);
+    const maxHeight = Math.max(minHeight, mapRect.height - 20);
+
+    this.panel.classList.add("stac-control-panel-resizing");
+
+    this.panelResizeMoveHandler = (moveEvent: PointerEvent) => {
+      if (!this.panel) return;
+      const widthDelta =
+        side === "left"
+          ? startX - moveEvent.clientX
+          : moveEvent.clientX - startX;
+      const nextWidth = clamp(startWidth + widthDelta, minWidth, maxWidth);
+      const nextHeight = clamp(
+        startHeight + moveEvent.clientY - startY,
+        minHeight,
+        maxHeight,
+      );
+
+      this.panel.style.width = `${nextWidth}px`;
+      this.panel.style.height = `${nextHeight}px`;
+
+      if (side === "left" && this.panel.style.left) {
+        this.panel.style.left = `${startLeft + startWidth - nextWidth}px`;
+      }
+      if (side === "right" && this.panel.style.right) {
+        this.panel.style.right = `${startRight + startWidth - nextWidth}px`;
+      }
+    };
+    this.panelResizeEndHandler = () => this.stopPanelResize();
+
+    document.addEventListener("pointermove", this.panelResizeMoveHandler);
+    document.addEventListener("pointerup", this.panelResizeEndHandler, {
+      once: true,
+    });
+  }
+
+  /** Stop an active panel resize gesture and remove document listeners. */
+  private stopPanelResize(): void {
+    if (this.panelResizeMoveHandler) {
+      document.removeEventListener("pointermove", this.panelResizeMoveHandler);
+      this.panelResizeMoveHandler = null;
+    }
+    if (this.panelResizeEndHandler) {
+      document.removeEventListener("pointerup", this.panelResizeEndHandler);
+      this.panelResizeEndHandler = null;
+    }
+    this.panel?.classList.remove("stac-control-panel-resizing");
   }
 
   /** Detect the control's corner from its MapLibre container class. */
   private corner(): "top-left" | "top-right" | "bottom-left" | "bottom-right" {
     const parent = this.container?.parentElement;
-    if (parent?.classList.contains("maplibregl-ctrl-top-left")) return "top-left";
-    if (parent?.classList.contains("maplibregl-ctrl-bottom-left")) return "bottom-left";
-    if (parent?.classList.contains("maplibregl-ctrl-bottom-right")) return "bottom-right";
+    if (parent?.classList.contains("maplibregl-ctrl-top-left"))
+      return "top-left";
+    if (parent?.classList.contains("maplibregl-ctrl-bottom-left"))
+      return "bottom-left";
+    if (parent?.classList.contains("maplibregl-ctrl-bottom-right"))
+      return "bottom-right";
     return "top-right";
   }
 
@@ -218,12 +306,18 @@ export class StacBrowserControl implements IControl {
   }
 }
 
-/** Inline "stacked layers" icon representing a catalog stack. */
+/** Inline catalog search icon for the STAC browser control. */
 const STAC_ICON = `
   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <polygon points="12 2 2 7 12 12 22 7 12 2"/>
-    <polyline points="2 17 12 22 22 17"/>
-    <polyline points="2 12 12 17 22 12"/>
+    <path d="M5 3h9l5 5v5"/>
+    <path d="M14 3v5h5"/>
+    <path d="M5 3v18h7"/>
+    <circle cx="11" cy="13" r="4"/>
+    <path d="m14 16 5 5"/>
   </svg>
 `;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}

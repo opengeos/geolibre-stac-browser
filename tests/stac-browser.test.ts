@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { StacBrowser } from "../src/lib/stac/browser";
 import { StacClient } from "../src/lib/stac/client";
+import { DEFAULT_CATALOGS } from "../src/lib/stac/catalogs";
 import type { StacMapBridge } from "../src/lib/stac/map-bridge";
 
 const ROUTES: Record<string, unknown> = {
@@ -25,7 +26,15 @@ const ROUTES: Record<string, unknown> = {
         bbox: [2, 2, 3, 3],
         geometry: {
           type: "Polygon",
-          coordinates: [[[2, 2], [3, 2], [3, 3], [2, 3], [2, 2]]],
+          coordinates: [
+            [
+              [2, 2],
+              [3, 2],
+              [3, 3],
+              [2, 3],
+              [2, 2],
+            ],
+          ],
         },
         properties: { datetime: "2021-06-15T00:00:00Z" },
         assets: {},
@@ -58,7 +67,15 @@ const ROUTES: Record<string, unknown> = {
         bbox: [0, 0, 1, 1],
         geometry: {
           type: "Polygon",
-          coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]],
+          coordinates: [
+            [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+              [0, 1],
+              [0, 0],
+            ],
+          ],
         },
         properties: { datetime: "2020-01-01T00:00:00Z", platform: "test-sat" },
         assets: {
@@ -117,13 +134,79 @@ describe("StacBrowser", () => {
     browser = new StacBrowser({
       client: new StacClient(fetchStub()),
       map,
+      presets: [{ name: "Test API", url: "https://api/" }, ...DEFAULT_CATALOGS],
     });
     browser.mount(container);
   });
 
   it("renders the toolbar and an empty state on mount", () => {
     expect(container.querySelector(".stac-toolbar")).not.toBeNull();
+    expect(container.querySelector(".stac-catalog-filter")).toBeNull();
+    expect(container.querySelector(".stac-preset-select")).not.toBeNull();
     expect(container.querySelector(".stac-empty-state")).not.toBeNull();
+  });
+
+  it("offers preset catalogs and a custom URL option", () => {
+    const select = container.querySelector(
+      ".stac-preset-select",
+    ) as HTMLSelectElement;
+
+    const options = Array.from(select.options).map(
+      (option) => option.textContent,
+    );
+    expect(options).toContain("Earth Search (AWS / Element 84)");
+    expect(options).toContain("Enter custom STAC catalog URL");
+  });
+
+  it("clears and focuses the URL input for a custom catalog", () => {
+    const select = container.querySelector(
+      ".stac-preset-select",
+    ) as HTMLSelectElement;
+    const input = container.querySelector(
+      ".stac-url-input",
+    ) as HTMLInputElement;
+    input.value = "https://old.example/catalog.json";
+
+    select.value = "__custom_stac_catalog__";
+    select.dispatchEvent(new Event("change"));
+
+    expect(input.value).toBe("");
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("clears previous catalog content when choosing a custom catalog", async () => {
+    await browser.loadCatalog("https://api/");
+    expect(container.querySelector(".stac-node-title")?.textContent).toBe(
+      "Root Catalog",
+    );
+
+    const select = container.querySelector(
+      ".stac-preset-select",
+    ) as HTMLSelectElement;
+    select.value = "__custom_stac_catalog__";
+    select.dispatchEvent(new Event("change"));
+
+    expect(container.querySelector(".stac-node-title")).toBeNull();
+    expect(container.querySelectorAll(".stac-child")).toHaveLength(0);
+    expect(container.querySelector(".stac-empty-state")).not.toBeNull();
+    expect(map.clear).toHaveBeenCalled();
+  });
+
+  it("loads a preset catalog URL from the catalog dropdown", async () => {
+    const select = container.querySelector(
+      ".stac-preset-select",
+    ) as HTMLSelectElement;
+    select.value = "https://api/";
+    select.dispatchEvent(new Event("change"));
+
+    await flush();
+    await flush();
+    expect(container.querySelector(".stac-node-title")?.textContent).toBe(
+      "Root Catalog",
+    );
+    expect(
+      (container.querySelector(".stac-url-input") as HTMLInputElement).value,
+    ).toBe("https://api/");
   });
 
   it("loads a catalog and lists its collections", async () => {
@@ -131,9 +214,28 @@ describe("StacBrowser", () => {
     expect(container.querySelector(".stac-node-title")?.textContent).toBe(
       "Root Catalog",
     );
+    expect(container.querySelector(".stac-breadcrumbs")?.textContent).toBe("");
     const children = container.querySelectorAll(".stac-child-title");
     expect(children).toHaveLength(1);
     expect(children[0].textContent).toBe("Collection One");
+  });
+
+  it("filters catalogs and collections by name", async () => {
+    await browser.loadCatalog("https://api/");
+    const filter = container.querySelector(
+      ".stac-child-filter",
+    ) as HTMLInputElement;
+
+    filter.value = "missing";
+    filter.dispatchEvent(new Event("input"));
+    expect(container.querySelectorAll(".stac-child")).toHaveLength(0);
+    expect(container.textContent).toContain(
+      "No catalogs or collections match this filter.",
+    );
+
+    filter.value = "collection";
+    filter.dispatchEvent(new Event("input"));
+    expect(container.querySelectorAll(".stac-child")).toHaveLength(1);
   });
 
   it("drills into a collection, lists items, and shows footprints", async () => {
@@ -179,8 +281,12 @@ describe("StacBrowser", () => {
     expect(search).not.toBeNull();
 
     // Expand the form and submit (no filters → broad search).
-    (container.querySelector(".stac-search-toggle") as HTMLButtonElement).click();
-    (container.querySelector(".stac-search-submit") as HTMLButtonElement).click();
+    (
+      container.querySelector(".stac-search-toggle") as HTMLButtonElement
+    ).click();
+    (
+      container.querySelector(".stac-search-submit") as HTMLButtonElement
+    ).click();
     await flush();
     await flush();
 
@@ -191,6 +297,27 @@ describe("StacBrowser", () => {
     );
     expect(ids).toContain("search-hit-1");
     expect(container.querySelector(".stac-back")).not.toBeNull();
+  });
+
+  it("uses a single bbox input in the search form", async () => {
+    (map.getViewBounds as ReturnType<typeof vi.fn>).mockReturnValue([
+      1, 2, 3, 4,
+    ]);
+    await browser.loadCatalog("https://api/");
+
+    (
+      container.querySelector(".stac-search-toggle") as HTMLButtonElement
+    ).click();
+    const bbox = container.querySelector(
+      ".stac-search-bbox",
+    ) as HTMLInputElement;
+    expect(bbox.tagName).toBe("INPUT");
+    expect(container.querySelectorAll(".stac-search-bbox")).toHaveLength(1);
+
+    (
+      container.querySelector(".stac-search-useview") as HTMLButtonElement
+    ).click();
+    expect(bbox.value).toBe("1.0000, 2.0000, 3.0000, 4.0000");
   });
 
   it("clears the map on destroy", () => {

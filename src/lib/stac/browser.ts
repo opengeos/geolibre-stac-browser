@@ -64,6 +64,7 @@ interface NavLevel {
 // Asset keys/roles that commonly hold a publicly viewable preview image.
 const PREVIEW_ROLES = new Set(["thumbnail", "overview"]);
 const PREVIEW_KEYS = ["rendered_preview", "thumbnail", "preview"];
+const CUSTOM_CATALOG_VALUE = "__custom_stac_catalog__";
 
 /**
  * Interactive STAC catalog browser. Call {@link mount} to render it, then
@@ -146,6 +147,20 @@ export class StacBrowser {
     this.map.clear();
   }
 
+  /** Reset the browser UI and map state before entering a new custom URL. */
+  private resetBrowser(): void {
+    this.loadSeq += 1;
+    this.map.clear();
+    this.searchLink = null;
+    this.searchOpen = false;
+    this.nav = [];
+    this.items = [];
+    this.itemsPage = null;
+    clear(this.breadcrumbs);
+    this.clearStatus();
+    this.renderEmptyState();
+  }
+
   /** Tear down map side effects (call when the panel closes). */
   destroy(): void {
     this.loadSeq += 1;
@@ -159,18 +174,23 @@ export class StacBrowser {
 
     const select = el("select", {
       className: "stac-preset-select",
-      title: "Choose a known STAC catalog",
+      title: "Choose a known STAC catalog or enter a custom URL",
+      attrs: { "aria-label": "Choose a STAC catalog" },
     }) as HTMLSelectElement;
     select.append(
-      el("option", { text: "Choose a catalog…", attrs: { value: "" } }),
+      el("option", { text: "Choose a catalog...", attrs: { value: "" } }),
     );
     for (const preset of this.presets) {
-      select.append(el("option", { text: preset.name, attrs: { value: preset.url } }));
+      select.append(
+        el("option", { text: preset.name, attrs: { value: preset.url } }),
+      );
     }
-    select.addEventListener("change", () => {
-      if (select.value) void this.loadCatalog(select.value);
-      select.selectedIndex = 0;
-    });
+    select.append(
+      el("option", {
+        text: "Enter custom STAC catalog URL",
+        attrs: { value: CUSTOM_CATALOG_VALUE },
+      }),
+    );
 
     const row = el("div", { className: "stac-url-row" });
     this.urlInput = el("input", {
@@ -186,6 +206,20 @@ export class StacBrowser {
       className: "stac-btn stac-btn-primary",
       text: "Load",
       onClick: () => void this.loadCatalog(this.urlInput.value),
+    });
+    select.addEventListener("change", () => {
+      if (select.value === CUSTOM_CATALOG_VALUE) {
+        this.urlInput.value = "";
+        this.resetBrowser();
+        this.urlInput.focus();
+        return;
+      }
+      if (select.value) {
+        const url = select.value;
+        this.urlInput.value = url;
+        void this.loadCatalog(url);
+      }
+      select.selectedIndex = 0;
     });
     row.append(this.urlInput, loadBtn);
 
@@ -279,10 +313,13 @@ export class StacBrowser {
     }
 
     // Items (collections and item-bearing catalogs).
-    const hasItems = getLink(node, "items") || getLinks(node, "item").length > 0;
+    const hasItems =
+      getLink(node, "items") || getLinks(node, "item").length > 0;
     if (hasItems) {
       const itemsSection = el("div", { className: "stac-section" });
-      itemsSection.append(el("h3", { className: "stac-section-title", text: "Items" }));
+      itemsSection.append(
+        el("h3", { className: "stac-section-title", text: "Items" }),
+      );
       const list = el("div", { className: "stac-item-list" });
       itemsSection.append(list, this.buildLoadMore(list));
       this.bodyEl.append(itemsSection);
@@ -314,7 +351,10 @@ export class StacBrowser {
     const description = (node as { description?: string }).description;
     if (description) {
       header.append(
-        el("p", { className: "stac-node-desc", text: truncate(description, 400) }),
+        el("p", {
+          className: "stac-node-desc",
+          text: truncate(description, 400),
+        }),
       );
     }
 
@@ -337,24 +377,51 @@ export class StacBrowser {
         text: `Catalogs & Collections (${children.length})`,
       }),
     );
+    const filter = el("input", {
+      className: "stac-child-filter",
+      attrs: {
+        type: "search",
+        placeholder: "Filter catalogs and collections by name...",
+        "aria-label": "Filter catalogs and collections by name",
+      },
+    }) as HTMLInputElement;
     const list = el("div", { className: "stac-child-list" });
-    for (const child of children) {
-      const row = el("button", {
-        className: "stac-child",
-        onClick: () => void this.navigateInto(child),
-      });
-      row.append(el("span", { className: "stac-child-title", text: child.title }));
-      if (child.description) {
+    const renderChildren = (): void => {
+      clear(list);
+      const term = filter.value.trim().toLowerCase();
+      const visible = term
+        ? children.filter((child) => child.title.toLowerCase().includes(term))
+        : children;
+      for (const child of visible) {
+        const row = el("button", {
+          className: "stac-child",
+          onClick: () => void this.navigateInto(child),
+        });
         row.append(
-          el("span", {
-            className: "stac-child-desc",
-            text: truncate(child.description, 120),
+          el("span", { className: "stac-child-title", text: child.title }),
+        );
+        if (child.description) {
+          row.append(
+            el("span", {
+              className: "stac-child-desc",
+              text: truncate(child.description, 120),
+            }),
+          );
+        }
+        list.append(row);
+      }
+      if (visible.length === 0) {
+        list.append(
+          el("p", {
+            className: "stac-empty",
+            text: "No catalogs or collections match this filter.",
           }),
         );
       }
-      list.append(row);
-    }
-    section.append(list);
+    };
+    filter.addEventListener("input", renderChildren);
+    renderChildren();
+    section.append(filter, list);
     return section;
   }
 
@@ -375,7 +442,9 @@ export class StacBrowser {
     toggle.addEventListener("click", () => {
       this.searchOpen = !this.searchOpen;
       form.style.display = this.searchOpen ? "" : "none";
-      toggle.textContent = this.searchOpen ? "▾ Search items" : "▸ Search items";
+      toggle.textContent = this.searchOpen
+        ? "▾ Search items"
+        : "▸ Search items";
     });
 
     // Default the collections field to the current collection, if any.
@@ -383,27 +452,25 @@ export class StacBrowser {
       level.type === "Collection"
         ? String((level.node as { id?: string }).id ?? "")
         : "";
-    const collections = this.field(form, "Collections (comma-separated)", "text");
+    const collections = this.field(
+      form,
+      "Collections (comma-separated)",
+      "text",
+    );
     collections.value = defaultCollection;
     collections.placeholder = "e.g. sentinel-2-l2a";
 
     // Bounding box.
-    const bboxRow = el("div", { className: "stac-search-bbox" });
-    const west = this.numField(bboxRow, "W");
-    const south = this.numField(bboxRow, "S");
-    const east = this.numField(bboxRow, "E");
-    const north = this.numField(bboxRow, "N");
-    form.append(this.labelled("Bounding box", bboxRow));
+    const bbox = this.field(form, "Bounding box", "text");
+    bbox.classList.add("stac-search-bbox");
+    bbox.placeholder = "west, south, east, north";
     const useView = el("button", {
       className: "stac-btn stac-search-useview",
       text: "Use current map view",
       onClick: () => {
         const view = this.map.getViewBounds();
         if (!view) return;
-        west.value = view[0].toFixed(4);
-        south.value = view[1].toFixed(4);
-        east.value = view[2].toFixed(4);
-        north.value = view[3].toFixed(4);
+        bbox.value = view.map((value) => value.toFixed(4)).join(", ");
       },
     });
     form.append(useView);
@@ -429,7 +496,7 @@ export class StacBrowser {
           collections: collections.value
             ? collections.value.split(",")
             : undefined,
-          bbox: readBbox(west, south, east, north),
+          bbox: readBbox(bbox),
           dateStart: dateStart.value || undefined,
           dateEnd: dateEnd.value || undefined,
           cloudCover: cloud.value !== "" ? Number(cloud.value) : null,
@@ -488,8 +555,7 @@ export class StacBrowser {
     );
 
     const section = el("div", { className: "stac-section" });
-    const matched =
-      page.matched != null ? ` · ${page.matched} matched` : "";
+    const matched = page.matched != null ? ` · ${page.matched} matched` : "";
     section.append(
       el("h3", {
         className: "stac-section-title",
@@ -519,16 +585,6 @@ export class StacBrowser {
     return input;
   }
 
-  /** Create a small numeric input (used for bbox corners). */
-  private numField(parent: HTMLElement, placeholder: string): HTMLInputElement {
-    const input = el("input", {
-      className: "stac-search-num",
-      attrs: { type: "number", step: "any", placeholder },
-    }) as HTMLInputElement;
-    parent.append(input);
-    return input;
-  }
-
   /** Create a date input within a row. */
   private dateField(parent: HTMLElement, label: string): HTMLInputElement {
     const input = el("input", {
@@ -542,7 +598,10 @@ export class StacBrowser {
   /** Wrap a control with a label. */
   private labelled(label: string, control: HTMLElement): HTMLElement {
     const wrap = el("label", { className: "stac-search-field" });
-    wrap.append(el("span", { className: "stac-search-label", text: label }), control);
+    wrap.append(
+      el("span", { className: "stac-search-label", text: label }),
+      control,
+    );
     return wrap;
   }
 
@@ -580,7 +639,9 @@ export class StacBrowser {
       list.append(this.buildItemRow(item));
     }
     if (this.items.length === 0) {
-      list.append(el("p", { className: "stac-empty", text: "No items found." }));
+      list.append(
+        el("p", { className: "stac-empty", text: "No items found." }),
+      );
     }
   }
 
@@ -697,7 +758,10 @@ export class StacBrowser {
     wrap.append(el("h2", { className: "stac-node-title", text: item.id }));
     if (item.collection) {
       wrap.append(
-        el("span", { className: "stac-badge", text: `Item · ${item.collection}` }),
+        el("span", {
+          className: "stac-badge",
+          text: `Item · ${item.collection}`,
+        }),
       );
     }
 
@@ -774,7 +838,9 @@ export class StacBrowser {
     if (entries.length === 0) return null;
 
     const section = el("div", { className: "stac-section" });
-    section.append(el("h3", { className: "stac-section-title", text: "Properties" }));
+    section.append(
+      el("h3", { className: "stac-section-title", text: "Properties" }),
+    );
     const dl = el("div", { className: "stac-def-list" });
     for (const [key, value] of entries.slice(0, 40)) {
       const display =
@@ -807,14 +873,20 @@ export class StacBrowser {
       if (asset.type) meta.push(shortMediaType(asset.type));
       if (asset.roles?.length) meta.push(asset.roles.join(", "));
       if (meta.length) {
-        main.append(el("span", { className: "stac-asset-meta", text: meta.join(" · ") }));
+        main.append(
+          el("span", { className: "stac-asset-meta", text: meta.join(" · ") }),
+        );
       }
       row.append(main);
       row.append(
         el("a", {
           className: "stac-asset-link",
           text: "Open",
-          attrs: { href: asset.href, target: "_blank", rel: "noopener noreferrer" },
+          attrs: {
+            href: asset.href,
+            target: "_blank",
+            rel: "noopener noreferrer",
+          },
         }),
       );
       list.append(row);
@@ -827,9 +899,12 @@ export class StacBrowser {
 
   private renderBreadcrumbs(): void {
     clear(this.breadcrumbs);
+    if (this.nav.length <= 1) return;
     this.nav.forEach((level, index) => {
       if (index > 0) {
-        this.breadcrumbs.append(el("span", { className: "stac-crumb-sep", text: "›" }));
+        this.breadcrumbs.append(
+          el("span", { className: "stac-crumb-sep", text: "›" }),
+        );
       }
       const isLast = index === this.nav.length - 1;
       this.breadcrumbs.append(
@@ -930,16 +1005,14 @@ function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
 
-/** Read a bbox from four corner inputs, or `null` when any is blank/invalid. */
+/** Read a comma-separated bbox, or `null` when it is blank or invalid. */
 function readBbox(
-  west: HTMLInputElement,
-  south: HTMLInputElement,
-  east: HTMLInputElement,
-  north: HTMLInputElement,
+  input: HTMLInputElement,
 ): [number, number, number, number] | null {
-  const inputs = [west, south, east, north];
-  if (inputs.some((input) => input.value.trim() === "")) return null;
-  const values = inputs.map((input) => Number(input.value));
+  const text = input.value.trim();
+  if (!text) return null;
+  const values = text.split(",").map((value) => Number(value.trim()));
+  if (values.length !== 4) return null;
   if (values.some((value) => !Number.isFinite(value))) return null;
   return [values[0], values[1], values[2], values[3]];
 }
