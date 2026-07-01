@@ -64,7 +64,6 @@ interface NavLevel {
 }
 
 // Asset keys/roles that commonly hold a publicly viewable preview image.
-const PREVIEW_ROLES = new Set(["thumbnail", "overview"]);
 const PREVIEW_KEYS = ["rendered_preview", "thumbnail", "preview"];
 const CUSTOM_CATALOG_VALUE = "__custom_stac_catalog__";
 
@@ -801,12 +800,14 @@ export class StacBrowser {
             },
           }),
         );
-      } else if (cog && this.map.canShowCog()) {
+      } else if (cog) {
         actions.append(
           el("button", {
             className: "stac-btn stac-btn-primary",
             text: "Preview on map",
-            title: cog.title || "Render original Cloud Optimized GeoTIFF",
+            title: this.map.canShowCog()
+              ? cog.title || "Render original Cloud Optimized GeoTIFF"
+              : "Render original Cloud Optimized GeoTIFF when the host raster renderer is available",
             onClick: () => {
               this.map.showCog(cog.href, item.id);
               this.map.fitBounds(bounds);
@@ -993,17 +994,10 @@ function previewAsset(
 ): StacAsset | null {
   if (!assets) return null;
   for (const key of PREVIEW_KEYS) {
-    if (assets[key]?.href) return assets[key];
+    if (isBrowserImage(assets[key])) return assets[key];
   }
   for (const asset of Object.values(assets)) {
-    const roles = asset.roles ?? [];
-    if (
-      asset.href &&
-      (roles.some((role) => PREVIEW_ROLES.has(role)) ||
-        (asset.type?.startsWith("image/") && asset.type !== "image/tiff"))
-    ) {
-      return asset;
-    }
+    if (isBrowserImage(asset)) return asset;
   }
   return null;
 }
@@ -1021,6 +1015,18 @@ function cogAsset(
     if (isCog(asset)) return asset;
   }
   return null;
+}
+
+/** Whether an asset can be decoded by MapLibre's browser image source. */
+function isBrowserImage(asset: StacAsset | undefined): asset is StacAsset {
+  if (!asset?.href) return false;
+  const type = asset.type?.toLowerCase() ?? "";
+  if (type.includes("tiff") || type.includes("geotiff")) return false;
+  if (/\.(tiff?|geotiff)($|\?)/i.test(asset.href)) return false;
+  return (
+    type.startsWith("image/") ||
+    /\.(png|jpe?g|webp|gif)($|\?)/i.test(asset.href)
+  );
 }
 
 /** Whether an asset points to raster TileJSON tiles. */

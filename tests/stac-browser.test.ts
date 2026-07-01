@@ -324,6 +324,44 @@ describe("StacBrowser", () => {
     );
   });
 
+  it("shows COG previews without treating GeoTIFF assets as browser images", async () => {
+    const itemRoute = ROUTES["https://api/collections/col/items"] as {
+      features: Array<{ assets: Record<string, unknown> }>;
+    };
+    const originalAssets = itemRoute.features[0].assets;
+    itemRoute.features[0].assets = {
+      data: {
+        href: "https://t/data.tif",
+        type: "image/tiff; application=geotiff; profile=cloud-optimized",
+        roles: ["thumbnail"],
+      },
+    };
+
+    try {
+      await browser.loadCatalog("https://api/");
+      (container.querySelector(".stac-child") as HTMLButtonElement).click();
+      await flush();
+      await flush();
+      (container.querySelector(".stac-item") as HTMLButtonElement).click();
+      await flush();
+
+      (map.showCog as ReturnType<typeof vi.fn>).mockClear();
+      (map.showPreview as ReturnType<typeof vi.fn>).mockClear();
+      (map.fitBounds as ReturnType<typeof vi.fn>).mockClear();
+
+      const preview = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "Preview on map",
+      ) as HTMLButtonElement;
+      preview.click();
+
+      expect(map.showCog).toHaveBeenCalledWith("https://t/data.tif", "item-1");
+      expect(map.showPreview).not.toHaveBeenCalled();
+      expect(map.fitBounds).toHaveBeenCalledWith([0, 0, 1, 1]);
+    } finally {
+      itemRoute.features[0].assets = originalAssets;
+    }
+  });
+
   it("prefers map-ready TileJSON previews when available", async () => {
     const itemRoute = ROUTES["https://api/collections/col/items"] as {
       features: Array<{ assets: Record<string, unknown> }>;
@@ -365,31 +403,48 @@ describe("StacBrowser", () => {
   });
 
   it("zooms to the footprint after fallback image preview", async () => {
-    await browser.loadCatalog("https://api/");
-    (container.querySelector(".stac-child") as HTMLButtonElement).click();
-    await flush();
-    await flush();
-    (container.querySelector(".stac-item") as HTMLButtonElement).click();
-    await flush();
+    const itemRoute = ROUTES["https://api/collections/col/items"] as {
+      features: Array<{ assets: Record<string, unknown> }>;
+    };
+    const originalAssets = itemRoute.features[0].assets;
+    itemRoute.features[0].assets = {
+      thumbnail: {
+        href: "https://t/thumb.png",
+        type: "image/png",
+        roles: ["thumbnail"],
+      },
+    };
 
-    (map.showPreview as ReturnType<typeof vi.fn>).mockClear();
-    (map.fitBounds as ReturnType<typeof vi.fn>).mockClear();
+    try {
+      await browser.loadCatalog("https://api/");
+      (container.querySelector(".stac-child") as HTMLButtonElement).click();
+      await flush();
+      await flush();
+      (container.querySelector(".stac-item") as HTMLButtonElement).click();
+      await flush();
 
-    const preview = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Preview on map",
-    ) as HTMLButtonElement;
-    preview.click();
+      (map.showPreview as ReturnType<typeof vi.fn>).mockClear();
+      (map.fitBounds as ReturnType<typeof vi.fn>).mockClear();
 
-    expect(map.showPreview).toHaveBeenCalledWith(
-      "https://t/thumb.png",
-      [0, 0, 1, 1],
-    );
-    expect(map.fitBounds).toHaveBeenCalledWith([0, 0, 1, 1]);
-    expect(
-      (map.showPreview as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],
-    ).toBeLessThan(
-      (map.fitBounds as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],
-    );
+      const preview = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "Preview on map",
+      ) as HTMLButtonElement;
+      preview.click();
+
+      expect(map.showPreview).toHaveBeenCalledWith(
+        "https://t/thumb.png",
+        [0, 0, 1, 1],
+      );
+      expect(map.fitBounds).toHaveBeenCalledWith([0, 0, 1, 1]);
+      expect(
+        (map.showPreview as ReturnType<typeof vi.fn>).mock
+          .invocationCallOrder[0],
+      ).toBeLessThan(
+        (map.fitBounds as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],
+      );
+    } finally {
+      itemRoute.features[0].assets = originalAssets;
+    }
   });
 
   it("shows a search form for an API root and renders search results", async () => {

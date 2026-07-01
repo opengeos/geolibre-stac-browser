@@ -3,11 +3,11 @@
  *
  * GeoLibre renders COGs with the deck.gl/luma.gl-backed `maplibre-gl-raster`
  * engine. Bundling a second copy of deck.gl/luma would make luma.gl throw
- * "already initialized", so this plugin never imports the engine: it asks the
- * host for its shared instance via {@link GeoLibreAppAPI.getMaplibreGlRaster} and
- * drives the headless `LayerManager`. When the host does not provide the engine,
- * {@link CogRenderer.canShow} reports `false` and the browser falls back to a
- * thumbnail image overlay.
+ * "already initialized", so this plugin never imports the engine. It first asks
+ * the host to add a native COG layer via {@link GeoLibreAppAPI.addCogLayer};
+ * older hosts can still provide their shared raster module through
+ * {@link GeoLibreAppAPI.getMaplibreGlRaster}. When neither host capability is
+ * present, {@link CogRenderer.canShow} reports `false`.
  *
  * @see https://github.com/opengeos/maplibre-gl-raster
  */
@@ -15,7 +15,9 @@
 import type { Map as MapLibreMap } from "maplibre-gl";
 import type {
   GeoLibreAppAPI,
+  GeoLibreCogLayerOptions,
   GeoLibreControl,
+  GeoLibreRasterModule,
   GeoLibreRasterLayerManager,
 } from "./host-api";
 import type { CogRenderer } from "./stac-map-bridge";
@@ -53,27 +55,45 @@ export function createCogRenderer<TControl extends GeoLibreControl>(
   getMap: () => MapLibreMap | null,
 ): CogRenderer {
   let manager: GeoLibreRasterLayerManager | null = null;
+  let managerPromise: Promise<GeoLibreRasterLayerManager | null> | null = null;
   let currentId: string | null = null;
 
-  const getModule = () => app.getMaplibreGlRaster?.() ?? null;
+  const getModule = async (): Promise<GeoLibreRasterModule | null> => {
+    const module = app.getMaplibreGlRaster?.() ?? null;
+    return module ? await module : null;
+  };
 
-  const ensureManager = (map: MapLibreMap): GeoLibreRasterLayerManager | null => {
+  const ensureManager = async (
+    map: MapLibreMap,
+  ): Promise<GeoLibreRasterLayerManager | null> => {
     if (manager) return manager;
-    const module = getModule();
-    if (!module?.LayerManager) return null;
-    manager = new module.LayerManager(map, { interleaved: true });
-    return manager;
+    managerPromise ??= (async () => {
+      const module = await getModule();
+      if (!module?.LayerManager) return null;
+      manager = new module.LayerManager(map, { interleaved: true });
+      return manager;
+    })();
+    return managerPromise;
   };
 
   return {
     canShow(): boolean {
-      return Boolean(getModule()?.LayerManager);
+      return Boolean(app.addCogLayer || app.getMaplibreGlRaster);
     },
 
     async show(url, id, options): Promise<void> {
+      if (app.addCogLayer) {
+        app.setMapProjection?.("mercator");
+        currentId = await app.addCogLayer(id, url, {
+          nodata: 0,
+          ...(options as GeoLibreCogLayerOptions | undefined),
+        });
+        return;
+      }
+
       const map = getMap();
       if (!map) return;
-      const layerManager = ensureManager(map);
+      const layerManager = await ensureManager(map);
       if (!layerManager) return;
 
       // Replace any previous COG so only one is shown at a time.

@@ -56,4 +56,48 @@ describe("createStacMapBridge", () => {
       paint: { "raster-opacity": 0.9, "raster-fade-duration": 0 },
     });
   });
+
+  it("falls back to TiTiler TileJSON for public COGs without a host renderer", () => {
+    const map = fakeMap(true);
+    const bridge = createStacMapBridge(() => map, {
+      canShow: vi.fn(() => false),
+      show: vi.fn(),
+      clear: vi.fn(),
+    });
+
+    bridge.showCog("https://example.com/data.tif", "item-1");
+
+    expect(map.addSource).toHaveBeenCalledWith("stac-browser-tilejson", {
+      type: "raster",
+      url: "https://titiler.d2s.org/cog/WebMercatorQuad/tilejson.json?url=https%3A%2F%2Fexample.com%2Fdata.tif",
+    });
+    expect(map.addLayer).toHaveBeenCalledWith({
+      id: "stac-browser-tilejson-layer",
+      type: "raster",
+      source: "stac-browser-tilejson",
+      paint: { "raster-opacity": 0.9, "raster-fade-duration": 0 },
+    });
+  });
+
+  it("uses the host COG renderer when available", () => {
+    const map = fakeMap(true);
+    const cog = {
+      canShow: vi.fn(() => true),
+      show: vi.fn(),
+      clear: vi.fn(),
+    };
+    const bridge = createStacMapBridge(() => map, cog);
+
+    bridge.showCog("https://example.com/data.tif", "item-1");
+
+    expect(cog.show).toHaveBeenCalledWith(
+      "https://example.com/data.tif",
+      "item-1",
+      undefined,
+    );
+    expect(map.addSource).not.toHaveBeenCalledWith(
+      "stac-browser-tilejson",
+      expect.anything(),
+    );
+  });
 });
