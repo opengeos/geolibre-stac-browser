@@ -148,6 +148,24 @@ export interface GeoLibreRasterModule {
   ) => GeoLibreRasterLayerManager;
 }
 
+/** Rendering options for a host-managed Cloud Optimized GeoTIFF layer. */
+export interface GeoLibreCogLayerOptions {
+  /** Band selection, e.g. `"1"` for single-band or `"1,2,3"` for RGB. */
+  bands?: string;
+  /** Named colormap applied to a single-band COG. */
+  colormap?: string;
+  /** Lower bound of the value range mapped to the colormap/contrast stretch. */
+  rescaleMin?: number;
+  /** Upper bound of the value range mapped to the colormap/contrast stretch. */
+  rescaleMax?: number;
+  /** Pixel value rendered as transparent. */
+  nodata?: number;
+  /** Initial layer opacity in the range 0..1. */
+  opacity?: number;
+  /** Insert the layer directly beneath the layer with this id. */
+  beforeLayerId?: string;
+}
+
 /**
  * The surface GeoLibre exposes to an active plugin.
  *
@@ -158,7 +176,9 @@ export interface GeoLibreRasterModule {
  *
  * @typeParam TControl - The plugin's concrete control type.
  */
-export interface GeoLibreAppAPI<TControl extends GeoLibreControl = GeoLibreControl> {
+export interface GeoLibreAppAPI<
+  TControl extends GeoLibreControl = GeoLibreControl,
+> {
   /**
    * Add the plugin's control to the map. Returns `false` when the host refuses
    * (for example, the slot is occupied), in which case the plugin should treat
@@ -209,7 +229,27 @@ export interface GeoLibreAppAPI<TControl extends GeoLibreControl = GeoLibreContr
    * the engine is unavailable, in which case the plugin falls back to a
    * thumbnail image overlay. See {@link GeoLibreRasterModule}.
    */
-  getMaplibreGlRaster?: () => GeoLibreRasterModule | null;
+  getMaplibreGlRaster?: () =>
+    | GeoLibreRasterModule
+    | Promise<GeoLibreRasterModule>
+    | null;
+  /**
+   * Ask GeoLibre to render a Cloud Optimized GeoTIFF as a native host-managed
+   * layer. Prefer this over direct `maplibre-gl-raster` access when available
+   * so the COG appears in the host's layer panel and uses the host raster stack.
+   */
+  addCogLayer?: (
+    name: string,
+    url: string,
+    options?: GeoLibreCogLayerOptions,
+  ) => Promise<string>;
+  /**
+   * Persist the map projection preference. COG renderers require Mercator
+   * because deck.gl tiled rendering does not support globe projection.
+   */
+  setMapProjection?: (projection: "globe" | "mercator") => void;
+  /** Current map projection preference, when the host exposes it. */
+  getMapProjection?: () => "globe" | "mercator";
   /**
    * Register a native right-sidebar panel that docks beside the host's built-in
    * Style panel. Returns an unregister function (call it from `deactivate`). The
@@ -343,7 +383,9 @@ export interface GeoLibreFloatingPanelRegistration {
  *
  * @typeParam TControl - The plugin's concrete control type.
  */
-export interface GeoLibrePlugin<TControl extends GeoLibreControl = GeoLibreControl> {
+export interface GeoLibrePlugin<
+  TControl extends GeoLibreControl = GeoLibreControl,
+> {
   /** Stable plugin id; must match `plugin.json`'s `id`. */
   id: string;
   /** Display name; must match `plugin.json`'s `name`. */

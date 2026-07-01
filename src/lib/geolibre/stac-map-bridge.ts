@@ -32,8 +32,25 @@ const PREVIEW_SOURCE = "stac-browser-preview";
 const PREVIEW_LAYER = "stac-browser-preview-layer";
 const TILEJSON_SOURCE = "stac-browser-tilejson";
 const TILEJSON_LAYER = "stac-browser-tilejson-layer";
+const TITILER_COG_TILEJSON =
+  "https://titiler.d2s.org/cog/WebMercatorQuad/tilejson.json";
 
 const EMPTY: FootprintCollection = { type: "FeatureCollection", features: [] };
+
+/** Build a public TiTiler TileJSON endpoint for an HTTP-accessible COG. */
+function cogTileJsonUrl(url: string): string | null {
+  try {
+    const source = new URL(url);
+    if (source.protocol !== "http:" && source.protocol !== "https:") {
+      return null;
+    }
+    const tileJson = new URL(TITILER_COG_TILEJSON);
+    tileJson.searchParams.set("url", url);
+    return tileJson.toString();
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Optional hook that renders a Cloud Optimized GeoTIFF asset on the map. The
@@ -122,6 +139,17 @@ export function createStacMapBridge(
     removeSource(map, TILEJSON_SOURCE);
   };
 
+  const addTileJsonPreview = (map: MapLibreMap, url: string): void => {
+    removePreview(map);
+    map.addSource(TILEJSON_SOURCE, { type: "raster", url });
+    map.addLayer({
+      id: TILEJSON_LAYER,
+      type: "raster",
+      source: TILEJSON_SOURCE,
+      paint: { "raster-opacity": 0.9, "raster-fade-duration": 0 },
+    });
+  };
+
   return {
     showFootprints(collection: FootprintCollection): void {
       whenReady((map) => {
@@ -191,14 +219,7 @@ export function createStacMapBridge(
     showTileJson(url: string): void {
       whenReady((map) => {
         cog?.clear();
-        removePreview(map);
-        map.addSource(TILEJSON_SOURCE, { type: "raster", url });
-        map.addLayer({
-          id: TILEJSON_LAYER,
-          type: "raster",
-          source: TILEJSON_SOURCE,
-          paint: { "raster-opacity": 0.9, "raster-fade-duration": 0 },
-        });
+        addTileJsonPreview(map, url);
       });
     },
 
@@ -208,6 +229,17 @@ export function createStacMapBridge(
       // any thumbnail overlay first so the two previews do not stack.
       const map = getMap();
       if (map) removePreview(map);
+      if (!cog?.canShow()) {
+        const tileJson = cogTileJsonUrl(url);
+        if (!tileJson) {
+          console.warn(
+            "[STAC Browser] Cannot preview COG because the GeoLibre host did not provide a raster renderer and the asset is not an HTTP URL.",
+          );
+          return;
+        }
+        whenReady((readyMap) => addTileJsonPreview(readyMap, tileJson));
+        return;
+      }
       void cog?.show(url, id, options);
     },
 
